@@ -1,6 +1,14 @@
 <script>
   import { onMount } from 'svelte';
-  import { getSites, getRemoteCourses, getVaultCourses, getSyncJobs, deleteVaultCourse } from './lib/api.js';
+  import {
+    getSites,
+    getRemoteCourses,
+    getVaultCourses,
+    getSyncJobs,
+    deleteVaultCourse,
+    deleteSite,
+    syncAllCourses,
+  } from './lib/api.js';
 
   import SiteModal from './lib/SiteModal.svelte';
   import SyncModal from './lib/SyncModal.svelte';
@@ -18,16 +26,20 @@
   let syncJobs = $state({});
   let toasts = $state([]);
   let pollTimer = null;
+  let isSyncingAll = $state(false);
 
-  // Deletion modal
+  // Deletion modals
   let deleteModalCourse = $state(null);
   let isDeleting = $state(false);
+  let deleteModalSite = $state(null);
+  let isDeletingSite = $state(false);
 
   // Current route
   let selectedCourseId = $state(null);
 
   // Modals
   let isAddSiteOpen = $state(false);
+  let siteToEdit = $state(null);
   let isSyncOpen = $state(false);
   let syncTarget = $state({ id: 0, name: '' });
 
@@ -167,6 +179,45 @@
       isDeleting = false;
     }
   }
+
+  function openEditSite() {
+    siteToEdit = activeSite;
+    isAddSiteOpen = true;
+  }
+
+  function confirmDeleteSite() {
+    deleteModalSite = activeSite;
+  }
+
+  async function executeDeleteSite() {
+    if (!deleteModalSite) return;
+    isDeletingSite = true;
+    try {
+      await deleteSite(deleteModalSite.id);
+      addToast(`🗑️ Removed site "${deleteModalSite.domain}" (${deleteModalSite.id})`, 'info');
+      deleteModalSite = null;
+      activeSiteId = '';
+      await loadSites();
+    } catch (e) {
+      addToast(`Failed to delete site: ${e.message}`, 'error');
+    } finally {
+      isDeletingSite = false;
+    }
+  }
+
+  async function handleSyncAll() {
+    if (isSyncingAll) return;
+    isSyncingAll = true;
+    try {
+      const res = await syncAllCourses(true);
+      addToast(`⚡ Initiated sync for ${res.count} courses across all sites!`, 'success');
+      setTimeout(checkSyncJobs, 500);
+    } catch (e) {
+      addToast(`Failed to sync all courses: ${e.message}`, 'error');
+    } finally {
+      isSyncingAll = false;
+    }
+  }
 </script>
 
 <div class="app-container">
@@ -230,16 +281,39 @@
           <span class="top-bar-title">Dashboard</span>
 
           {#if sites.length > 0}
-            <select
-              class="form-input"
-              style="width: auto; padding: 6px 12px; font-size: 13px;"
-              value={activeSiteId}
-              onchange={(e) => handleSiteChange(e.target.value)}
-            >
-              {#each sites as s}
-                <option value={s.id}>{s.domain} ({s.user_name || s.id})</option>
-              {/each}
-            </select>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <select
+                class="form-input"
+                style="width: auto; padding: 6px 12px; font-size: 13px;"
+                value={activeSiteId}
+                onchange={(e) => handleSiteChange(e.target.value)}
+              >
+                {#each sites as s}
+                  <option value={s.id}>{s.domain} ({s.user_name || s.id})</option>
+                {/each}
+              </select>
+
+              {#if activeSite}
+                <button
+                  type="button"
+                  class="btn btn-secondary btn-sm"
+                  style="padding: 5px 8px; font-size: 12px;"
+                  onclick={openEditSite}
+                  title="Edit site details, domain, or access token"
+                >
+                  ✏️ Edit
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-secondary btn-sm"
+                  style="padding: 5px 8px; font-size: 12px; color: #C53030;"
+                  onclick={confirmDeleteSite}
+                  title="Remove site registration"
+                >
+                  🗑️
+                </button>
+              {/if}
+            </div>
           {/if}
 
           <!-- Background Sync Indicator in Header -->
@@ -255,13 +329,31 @@
           {/if}
         </div>
 
-        <div class="top-bar-right">
+        <div class="top-bar-right" style="display: flex; align-items: center; gap: 10px;">
+          <button
+            type="button"
+            class="btn btn-primary btn-sm"
+            style="background: #2B6CB0; border-color: #2B6CB0; font-weight: 600;"
+            onclick={handleSyncAll}
+            disabled={isSyncingAll}
+            title="Sync all courses across all registered Canvas sites"
+          >
+            {#if isSyncingAll}
+              ⏳ Enqueuing All...
+            {:else}
+              ⚡ Sync All Sites
+            {/if}
+          </button>
+
           {#if activeSite}
             <span style="font-size: 13px; color: var(--canvas-text-muted);">
               👤 <strong>{activeSite.user_name || 'User'}</strong>
             </span>
           {/if}
-          <button class="btn btn-secondary btn-sm" onclick={() => (isAddSiteOpen = true)}>
+          <button
+            class="btn btn-secondary btn-sm"
+            onclick={() => { siteToEdit = null; isAddSiteOpen = true; }}
+          >
             + Add Another Site
           </button>
         </div>
@@ -358,8 +450,6 @@
                         <span class="stat-pill" style="color: #137333; background: #E6F4EA;">
                           ✓ Synced: {new Date(course.last_synced_at).toLocaleDateString()}
                         </span>
-                        <span class="stat-pill">📄 {course.total_pages} Pages</span>
-                        <span class="stat-pill">📦 {course.total_modules} Modules</span>
                       {:else}
                         <span class="stat-pill" style="color: #B06000; background: #FEF7E0;">
                           ☁️ Available on Canvas (Not Synced)
@@ -423,14 +513,25 @@
   </div>
 </div>
 
-<!-- Add Site Modal -->
+<!-- Add/Edit Site Modal -->
 <SiteModal
   open={isAddSiteOpen}
-  onClose={() => (isAddSiteOpen = false)}
+  siteToEdit={siteToEdit}
+  onClose={() => {
+    isAddSiteOpen = false;
+    siteToEdit = null;
+  }}
   onSiteAdded={(site) => {
-    sites = [...sites, site];
+    loadSites();
     activeSiteId = site.id;
     loadCourses(site.id);
+    addToast(`Connected Canvas site: ${site.domain}!`, 'success');
+  }}
+  onSiteUpdated={(site) => {
+    loadSites();
+    activeSiteId = site.id;
+    loadCourses(site.id);
+    addToast(`Updated site: ${site.domain}!`, 'success');
   }}
 />
 
@@ -440,13 +541,17 @@
   siteId={activeSiteId}
   courseId={syncTarget.id}
   courseName={syncTarget.name}
-  onClose={() => (isSyncOpen = false)}
+  onClose={() => {
+    isSyncOpen = false;
+    checkSyncJobs();
+  }}
   onSyncComplete={() => {
     loadCourses(activeSiteId);
+    checkSyncJobs();
   }}
 />
 
-<!-- Delete Confirmation Modal -->
+<!-- Delete Course Backup Modal -->
 {#if deleteModalCourse}
   <div
     class="modal-backdrop"
@@ -483,6 +588,47 @@
         </button>
         <button type="button" class="btn btn-danger" onclick={executeDeleteBackup} disabled={isDeleting}>
           {isDeleting ? 'Deleting...' : 'Delete Backup'}
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+<!-- Delete Site Registration Modal -->
+{#if deleteModalSite}
+  <div
+    class="modal-backdrop"
+    onclick={() => (deleteModalSite = null)}
+    onkeydown={(e) => e.key === 'Escape' && (deleteModalSite = null)}
+    role="dialog"
+    aria-modal="true"
+    tabindex="-1"
+  >
+    <div class="modal-dialog" onclick={(e) => e.stopPropagation()} role="document" style="max-width: 480px;">
+      <div class="modal-header">
+        <h2 style="color: #C53030;">Remove Canvas Site?</h2>
+        <button class="btn btn-secondary btn-sm" onclick={() => (deleteModalSite = null)}>✕</button>
+      </div>
+
+      <div class="modal-body">
+        <p style="font-size: 14px; color: var(--canvas-navy); margin-bottom: 12px;">
+          Are you sure you want to remove the registered site <strong>{deleteModalSite.domain}</strong> ({deleteModalSite.id})?
+        </p>
+
+        <div style="background: #FFF5F5; border: 1px solid #FEB2B2; border-radius: 6px; padding: 12px; font-size: 13px; color: #9B2C2C; margin-bottom: 16px;">
+          ⚠️ <strong>What happens:</strong>
+          <p style="margin: 6px 0 0 0; line-height: 1.5;">
+            This removes the site's access token from your local configuration. Any downloaded courses on disk will remain safe. Your remote Canvas account is completely unaffected.
+          </p>
+        </div>
+      </div>
+
+      <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 10px;">
+        <button type="button" class="btn btn-secondary" onclick={() => (deleteModalSite = null)} disabled={isDeletingSite}>
+          Cancel
+        </button>
+        <button type="button" class="btn btn-danger" onclick={executeDeleteSite} disabled={isDeletingSite}>
+          {isDeletingSite ? 'Removing...' : 'Remove Site'}
         </button>
       </div>
     </div>
