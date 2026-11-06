@@ -77,4 +77,4 @@ uv run ty check src/
 
 ## 📄 License
 
-MIT
+Apache-2.0

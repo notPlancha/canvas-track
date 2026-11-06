@@ -3,6 +3,7 @@ name = "canvas-track"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
+license = "Apache-2.0"
 authors = [
     { name = "notPlancha", email = "31565873+notPlancha@users.noreply.github.com" }
 ]
