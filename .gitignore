@@ -1,0 +1,32 @@
+# Python & Virtual Environments
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.ty_cache/
+
+# Node & Bun
+node_modules/
+frontend/dist/
+frontend/node_modules/
+src/canvas_track/static/
+.bun/
+
+# Environment, Secrets & Local Data
+.env
+*.env.local
+token.txt
+vault/
+tests_data/
+
+# IDE & OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
