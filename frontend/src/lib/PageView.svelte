@@ -37,6 +37,13 @@
       return;
     }
 
+    // Check if it's an external link
+    if (href.startsWith('http://') || href.startsWith('https://') || href.startsWith('//')) {
+      e.preventDefault();
+      window.open(href, '_blank', 'noopener,noreferrer');
+      return;
+    }
+
     // Check if it's a local vault file URL: /api/vault/files/:siteId/:courseId/:fileId
     if (href.startsWith('/api/vault/files/')) {
       e.preventDefault();

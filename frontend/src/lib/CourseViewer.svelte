@@ -110,6 +110,11 @@
     if (!target) return;
     const href = target.getAttribute('href');
     if (!href) return;
+    if (href.startsWith('http://') || href.startsWith('https://') || href.startsWith('//')) {
+      e.preventDefault();
+      window.open(href, '_blank', 'noopener,noreferrer');
+      return;
+    }
     if (href.startsWith('/api/vault/files/')) {
       e.preventDefault();
       const parts = href.split('/').filter(Boolean);
