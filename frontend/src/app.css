@@ -256,7 +256,7 @@ button {
 }
 
 .course-card-header {
-  height: 100px;
+  min-height: 100px;
   background: linear-gradient(135deg, #1A365D 0%, #2B6CB0 100%);
   padding: 16px;
   color: #fff;
@@ -265,11 +265,12 @@ button {
   justify-content: flex-end;
 }
 .course-card-header h3 {
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 600;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  word-break: break-word;
+  line-height: 1.35;
+  margin-bottom: 4px;
 }
 .course-card-code {
   font-size: 12px;
