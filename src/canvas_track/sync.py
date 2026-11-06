@@ -13,7 +13,7 @@ from datetime import datetime
 from typing import Any
 
 from canvas_track.client import CanvasClient
-from canvas_track.models import CourseMeta
+from canvas_track.models import CanvasPage, CourseMeta
 from canvas_track.vault import VaultManager, compute_sha256, sanitize_filename
 
 logger = logging.getLogger(__name__)
@@ -80,9 +80,44 @@ class SyncEngine:
             self.vault.save_front_page(self.site_id, course_id, front_page.model_dump())
             await emit("pages", f"Saved home page: {front_page.title}")
 
-        # 2. Fetch All Wiki Pages
+        # 2. Fetch Modules
+        await emit("modules", "Fetching course modules...")
+        try:
+            modules = await self.client.list_course_modules(course_id)
+        except Exception as e:
+            logger.warning("Could not fetch modules for course %d: %s", course_id, e)
+            modules = []
+        self.vault.save_modules(self.site_id, course_id, [m.model_dump() for m in modules])
+        await emit("modules", f"Saved {len(modules)} modules")
+
+        # 3. Fetch Wiki Pages
         await emit("pages", "Fetching course pages list...")
-        pages_summary = await self.client.list_course_pages(course_id)
+        try:
+            pages_summary = await self.client.list_course_pages(course_id)
+        except Exception as e:
+            logger.warning("Could not fetch pages list for course %d: %s", course_id, e)
+            pages_summary = []
+
+        known_page_urls = {p.url for p in pages_summary}
+
+        # Include front page if present but omitted from /pages listing
+        if front_page and front_page.url not in known_page_urls:
+            pages_summary.append(front_page)
+            known_page_urls.add(front_page.url)
+
+        # Harvest wiki pages referenced inside module items
+        for m in modules:
+            for it in m.items:
+                if it.type == "Page" and it.page_url and it.page_url not in known_page_urls:
+                    pages_summary.append(
+                        CanvasPage(
+                            url=it.page_url,
+                            title=it.title or it.page_url,
+                            front_page=False,
+                        )
+                    )
+                    known_page_urls.add(it.page_url)
+
         self.vault.save_pages_list(self.site_id, course_id, [p.model_dump() for p in pages_summary])
 
         total_pages = len(pages_summary)
@@ -93,19 +128,49 @@ class SyncEngine:
                 current=idx,
                 total=total_pages,
             )
-            full_page = await self.client.get_course_page(course_id, p.url)
-            self.vault.save_page(self.site_id, course_id, p.url, full_page.model_dump())
+            # If front_page already has complete body, reuse it
+            if front_page and p.url == front_page.url and front_page.body:
+                self.vault.save_page(self.site_id, course_id, p.url, front_page.model_dump())
+                continue
 
-        # 3. Fetch Modules
-        await emit("modules", "Fetching course modules...")
-        modules = await self.client.list_course_modules(course_id)
-        self.vault.save_modules(self.site_id, course_id, [m.model_dump() for m in modules])
-        await emit("modules", f"Saved {len(modules)} modules")
+            try:
+                full_page = await self.client.get_course_page(course_id, p.url)
+                if full_page:
+                    self.vault.save_page(self.site_id, course_id, p.url, full_page.model_dump())
+            except Exception as e:
+                logger.warning("Could not fetch page %s: %s", p.url, e)
 
         # 4. Fetch Folders & Files
         await emit("files", "Fetching folder and file hierarchies...")
-        folders = await self.client.list_course_folders(course_id)
-        files = await self.client.list_course_files(course_id)
+        try:
+            folders = await self.client.list_course_folders(course_id)
+        except Exception as e:
+            logger.warning("Could not fetch folders for course %d: %s", course_id, e)
+            folders = []
+
+        try:
+            files = await self.client.list_course_files(course_id)
+        except Exception as e:
+            logger.warning("Could not fetch files for course %d: %s", course_id, e)
+            files = []
+
+        known_file_ids = {f.id for f in files}
+
+        # Harvest files referenced inside module items (even if /files is 403 restricted)
+        for m in modules:
+            for it in m.items:
+                if it.type == "File" and it.content_id and it.content_id not in known_file_ids:
+                    try:
+                        f_meta = await self.client.get_file(course_id, it.content_id)
+                        if f_meta:
+                            files.append(f_meta)
+                            known_file_ids.add(f_meta.id)
+                    except Exception as e:
+                        logger.warning(
+                            "Could not fetch metadata for module file %s: %s",
+                            it.content_id,
+                            e,
+                        )
 
         self.vault.save_folders_metadata(self.site_id, course_id, [f.model_dump() for f in folders])
         self.vault.save_files_metadata(self.site_id, course_id, [f.model_dump() for f in files])
@@ -177,20 +242,36 @@ class SyncEngine:
 
         # 5. Fetch Assignments & Personal Submissions
         await emit("assignments", "Fetching course assignments & rubrics...")
-        assignments = await self.client.list_course_assignments(course_id)
+        try:
+            assignments = await self.client.list_course_assignments(course_id)
+        except Exception as e:
+            logger.warning("Could not fetch assignments for course %d: %s", course_id, e)
+            assignments = []
         self.vault.save_assignments(self.site_id, course_id, [a.model_dump() for a in assignments])
 
         await emit("submissions", "Fetching your personal submissions and grades...")
-        submissions = await self.client.list_course_submissions(course_id)
+        try:
+            submissions = await self.client.list_course_submissions(course_id)
+        except Exception as e:
+            logger.warning("Could not fetch submissions for course %d: %s", course_id, e)
+            submissions = []
         self.vault.save_submissions(self.site_id, course_id, [s.model_dump() for s in submissions])
 
         # 6. Fetch Announcements & Discussions
         await emit("announcements", "Fetching course announcements...")
-        announcements = await self.client.list_course_announcements(course_id)
+        try:
+            announcements = await self.client.list_course_announcements(course_id)
+        except Exception as e:
+            logger.warning("Could not fetch announcements for course %d: %s", course_id, e)
+            announcements = []
         self.vault.save_announcements(self.site_id, course_id, announcements)
 
         await emit("discussions", "Fetching course discussions & threads...")
-        discussions = await self.client.list_course_discussions(course_id)
+        try:
+            discussions = await self.client.list_course_discussions(course_id)
+        except Exception as e:
+            logger.warning("Could not fetch discussions for course %d: %s", course_id, e)
+            discussions = []
         self.vault.save_discussions(self.site_id, course_id, discussions)
 
         for topic in discussions:

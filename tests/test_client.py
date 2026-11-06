@@ -1,5 +1,7 @@
 """Unit tests for CanvasClient URL parsing and header handling."""
 
+import pytest
+
 from canvas_track.client import CanvasClient, parse_link_header
 from canvas_track.rewriter import CanvasLinkRewriter
 
@@ -38,3 +40,28 @@ def test_canvas_link_rewriter() -> None:
     assert "#/site/ltu/course/29010/pages/week-1-introduction" in rewritten
     assert "#/site/ltu/course/29010/assignments/55443" in rewritten
     assert "/api/vault/files/ltu/29010/88776" in rewritten
+
+
+@pytest.mark.anyio
+async def test_client_handles_404_and_403_gracefully() -> None:
+    import httpx
+
+    client = CanvasClient("canvas.example.edu", "dummy-token")
+
+    # Mock get_raw to simulate Canvas returning 404 for disabled feature
+    req = httpx.Request("GET", "https://canvas.example.edu/api/v1/courses/1/pages")
+    mock_resp_404 = httpx.Response(404, request=req)
+
+    async def fake_get_raw(url, params=None):
+        raise httpx.HTTPStatusError("Not Found", request=req, response=mock_resp_404)
+
+    client.get_raw = fake_get_raw
+
+    # Should return empty list instead of raising exception
+    pages = await client.list_course_pages(1)
+    assert pages == []
+
+    # get_course_page should return None on 404
+    client.get_json = fake_get_raw
+    page = await client.get_course_page(1, "some-slug")
+    assert page is None
