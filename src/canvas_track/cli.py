@@ -77,28 +77,29 @@ def add_site(
     client = CanvasClient(domain, token)
 
     async def _add() -> None:
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            transient=True,
-        ) as progress:
-            progress.add_task(description="Authenticating with Canvas...", total=None)
-            user = await client.get_user_profile()
+        async with client:
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                transient=True,
+            ) as progress:
+                progress.add_task(description="Authenticating with Canvas...", total=None)
+                user = await client.get_user_profile()
 
-        sid = site_id.strip() if site_id else sanitize_filename(domain.replace(".", "_"))
-        site = SiteConfig(
-            id=sid,
-            domain=domain,
-            base_url=client.base_url,
-            user_name=user.name,
-            user_id=user.id,
-            token=token,
-        )
-        vault.save_site(site)
-        console.print(
-            f"[bold green]Registered site '[cyan]{sid}[/cyan]'![/bold green] "
-            f"User: [bold]{user.name}[/bold] (ID: {user.id})"
-        )
+            sid = site_id.strip() if site_id else sanitize_filename(domain.replace(".", "_"))
+            site = SiteConfig(
+                id=sid,
+                domain=domain,
+                base_url=client.base_url,
+                user_name=user.name,
+                user_id=user.id,
+                token=token,
+            )
+            vault.save_site(site)
+            console.print(
+                f"[bold green]Registered site '[cyan]{sid}[/cyan]'![/bold green] "
+                f"User: [bold]{user.name}[/bold] (ID: {user.id})"
+            )
 
     asyncio.run(_add())
 
@@ -149,28 +150,30 @@ def sync(
     sync_engine = SyncEngine(client, vault, site_id)
 
     async def _sync() -> None:
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-        ) as progress:
-            task = progress.add_task(description=f"Syncing course {course_id}...", total=None)
+        async with client:
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+            ) as progress:
+                task = progress.add_task(description=f"Syncing course {course_id}...", total=None)
 
-            async def progress_cb(evt: dict) -> None:
-                stage = evt.get("stage", "")
-                msg = evt.get("message", "")
-                progress.update(task, description=f"[{stage.upper()}] {msg}")
+                async def progress_cb(evt: dict) -> None:
+                    stage = evt.get("stage", "")
+                    msg = evt.get("message", "")
+                    progress.update(task, description=f"[{stage.upper()}] {msg}")
 
-            meta = await sync_engine.sync_course(
-                course_id, progress_cb=progress_cb, download_files=download_files
+                meta = await sync_engine.sync_course(
+                    course_id, progress_cb=progress_cb, download_files=download_files
+                )
+
+            console.print("\n[bold green]Course synced successfully![/bold green]")
+            console.print(f"Name: [bold]{meta.course_name}[/bold]")
+            console.print(f"Default view: [cyan]{meta.default_view}[/cyan]")
+            console.print(f"Pages synced: [bold]{meta.total_pages}[/bold]")
+            console.print(
+                f"Modules: [bold]{meta.total_modules}[/bold] | "
+                f"Files: [bold]{meta.total_files}[/bold]"
             )
-
-        console.print("\n[bold green]Course synced successfully![/bold green]")
-        console.print(f"Name: [bold]{meta.course_name}[/bold]")
-        console.print(f"Default view: [cyan]{meta.default_view}[/cyan]")
-        console.print(f"Pages synced: [bold]{meta.total_pages}[/bold]")
-        console.print(
-            f"Modules: [bold]{meta.total_modules}[/bold] | Files: [bold]{meta.total_files}[/bold]"
-        )
 
     asyncio.run(_sync())
 
@@ -207,4 +210,3 @@ def delete_backup(
         console.print(
             f"[yellow]No local backup found for course {course_id} under site '{site_id}'.[/yellow]"
         )
-

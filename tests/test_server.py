@@ -189,4 +189,3 @@ def test_api_vault_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Non
     # Test open non-existent file
     resp = client.post("/api/vault/files/ltu/29010/99999/open")
     assert resp.status_code == 404
-

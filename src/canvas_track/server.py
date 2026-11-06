@@ -72,40 +72,38 @@ def create_app(vault_dir: Path | str | None = None) -> FastAPI:
         if not domain:
             raise HTTPException(status_code=400, detail="Canvas domain is required.")
 
-        client = CanvasClient(domain, payload.token)
-        try:
-            user = await client.get_user_profile()
-        except Exception as e:
-            logger.error("Failed to authenticate with Canvas at %s: %s", domain, e)
-            raise HTTPException(
-                status_code=401,
-                detail=f"Failed to authenticate with Canvas at {domain}. Please check your token.",
-            ) from e
+        async with CanvasClient(domain, payload.token) as client:
+            try:
+                user = await client.get_user_profile()
+            except Exception as e:
+                logger.error("Failed to authenticate with Canvas at %s: %s", domain, e)
+                msg = f"Failed to authenticate with Canvas at {domain}. Please check your token."
+                raise HTTPException(status_code=401, detail=msg) from e
 
-        site_id = (
-            payload.site_id.strip()
-            if payload.site_id
-            else sanitize_filename(domain.replace(".", "_"))
-        )
-        site = SiteConfig(
-            id=site_id,
-            domain=domain,
-            base_url=client.base_url,
-            user_name=user.name,
-            user_id=user.id,
-            token=payload.token.strip(),
-        )
-        vault.save_site(site)
-        return {
-            "success": True,
-            "site": {
-                "id": site.id,
-                "domain": site.domain,
-                "base_url": site.base_url,
-                "user_name": site.user_name,
-                "user_id": site.user_id,
-            },
-        }
+            site_id = (
+                payload.site_id.strip()
+                if payload.site_id
+                else sanitize_filename(domain.replace(".", "_"))
+            )
+            site = SiteConfig(
+                id=site_id,
+                domain=domain,
+                base_url=client.base_url,
+                user_name=user.name,
+                user_id=user.id,
+                token=payload.token.strip(),
+            )
+            vault.save_site(site)
+            return {
+                "success": True,
+                "site": {
+                    "id": site.id,
+                    "domain": site.domain,
+                    "base_url": site.base_url,
+                    "user_name": site.user_name,
+                    "user_id": site.user_id,
+                },
+            }
 
     @app.delete("/api/sites/{site_id}")
     def delete_site(site_id: str, delete_files: bool = Query(default=False)) -> dict[str, bool]:
@@ -119,14 +117,14 @@ def create_app(vault_dir: Path | str | None = None) -> FastAPI:
         if not site:
             raise HTTPException(status_code=404, detail="Site not found.")
 
-        client = CanvasClient(site.domain, site.token)
-        try:
-            remote_courses = await client.list_courses()
-        except Exception as e:
-            logger.error("Failed to query remote courses for site %s: %s", site_id, e)
-            raise HTTPException(
-                status_code=502, detail=f"Failed to fetch courses from Canvas: {e}"
-            ) from e
+        async with CanvasClient(site.domain, site.token) as client:
+            try:
+                remote_courses = await client.list_courses()
+            except Exception as e:
+                logger.error("Failed to query remote courses for site %s: %s", site_id, e)
+                raise HTTPException(
+                    status_code=502, detail=f"Failed to fetch courses from Canvas: {e}"
+                ) from e
 
         archived = {m.course_id: m for m in vault.list_archived_courses(site_id)}
         results: list[dict[str, Any]] = []
@@ -392,8 +390,7 @@ def create_app(vault_dir: Path | str | None = None) -> FastAPI:
             raise HTTPException(
                 status_code=404,
                 detail=(
-                    f"File {file_id} not found in local vault. "
-                    "Ensure course files are downloaded."
+                    f"File {file_id} not found in local vault. Ensure course files are downloaded."
                 ),
             )
 
