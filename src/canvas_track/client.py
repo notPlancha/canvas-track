@@ -123,9 +123,7 @@ class CanvasClient:
 
         raise RuntimeError(f"Failed to fetch {url} after {retries} retries")
 
-    async def get_json(
-        self, endpoint_or_url: str, params: dict[str, Any] | None = None
-    ) -> Any:
+    async def get_json(self, endpoint_or_url: str, params: dict[str, Any] | None = None) -> Any:
         """Fetch and parse JSON from a GET endpoint."""
         resp = await self.get_raw(endpoint_or_url, params=params)
         return resp.json()
@@ -265,9 +263,7 @@ class CanvasClient:
         """Fetch course discussion topics."""
         return await self.get_paginated(f"courses/{course_id}/discussion_topics")
 
-    async def get_discussion_entries(
-        self, course_id: int, topic_id: int
-    ) -> dict[str, Any]:
+    async def get_discussion_entries(self, course_id: int, topic_id: int) -> dict[str, Any]:
         """Fetch full discussion topic thread including all student replies."""
         return await self.get_json(f"courses/{course_id}/discussion_topics/{topic_id}/view")
 
@@ -282,9 +278,7 @@ class CanvasClient:
 
         existing_size = dest_path.stat().st_size if dest_path.exists() else 0
         if expected_size > 0 and existing_size == expected_size:
-            logger.debug(
-                "File %s already downloaded (%d bytes)", dest_path.name, existing_size
-            )
+            logger.debug("File %s already downloaded (%d bytes)", dest_path.name, existing_size)
             return True
 
         headers = dict(self._headers)
@@ -303,9 +297,7 @@ class CanvasClient:
                 # If Range wasn't accepted, restart download from beginning
                 if mode == "ab":
                     headers.pop("Range", None)
-                    async with client.stream(
-                        "GET", download_url, headers=headers
-                    ) as retry_resp:
+                    async with client.stream("GET", download_url, headers=headers) as retry_resp:
                         retry_resp.raise_for_status()
                         with open(dest_path, "wb") as f:
                             async for chunk in retry_resp.aiter_bytes(chunk_size=65536):

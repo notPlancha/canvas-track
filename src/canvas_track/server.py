@@ -22,7 +22,7 @@ from pydantic import BaseModel
 from canvas_track.client import CanvasClient
 from canvas_track.models import SiteConfig
 from canvas_track.rewriter import CanvasLinkRewriter
-from canvas_track.sync import SyncEngine
+from canvas_track.sync_manager import sync_manager
 from canvas_track.vault import VaultManager, sanitize_filename
 
 logger = logging.getLogger(__name__)
@@ -143,47 +143,71 @@ def create_app(vault_dir: Path | str | None = None) -> FastAPI:
             )
         return results
 
-    # 3. Live Sync Streaming (SSE)
+    # 3. Background Sync & Streaming (SSE)
+    @app.get("/api/sync/jobs")
+    def list_sync_jobs(site_id: str | None = None) -> list[dict[str, Any]]:
+        return [s.model_dump() for s in sync_manager.list_jobs(site_id)]
+
+    @app.get("/api/sites/{site_id}/courses/{course_id}/sync/status")
+    def get_sync_status(site_id: str, course_id: int) -> dict[str, Any]:
+        job = sync_manager.get_job(site_id, course_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="No sync job found for course.")
+        return job.status.model_dump()
+
+    @app.post("/api/sites/{site_id}/courses/{course_id}/sync")
+    def trigger_course_sync(
+        site_id: str,
+        course_id: int,
+        download_files: bool = Query(default=True),
+        course_name: str = Query(default=""),
+    ) -> dict[str, Any]:
+        site = vault.get_site(site_id)
+        if not site:
+            raise HTTPException(status_code=404, detail="Site not found.")
+
+        job = sync_manager.start_job(
+            vault=vault,
+            site_id=site_id,
+            course_id=course_id,
+            course_name=course_name,
+            download_files=download_files,
+        )
+        return {"status": job.status.status, "job": job.status.model_dump()}
+
     @app.get("/api/sites/{site_id}/courses/{course_id}/sync")
     async def sync_course_stream(
         site_id: str,
         course_id: int,
         download_files: bool = Query(default=True),
+        course_name: str = Query(default=""),
     ) -> StreamingResponse:
         site = vault.get_site(site_id)
         if not site:
             raise HTTPException(status_code=404, detail="Site not found.")
 
-        client = CanvasClient(site.domain, site.token)
-        sync_engine = SyncEngine(client, vault, site_id)
-        queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
-
-        async def progress_callback(evt: dict[str, Any]) -> None:
-            await queue.put(evt)
-
-        async def run_sync_task() -> None:
-            try:
-                await sync_engine.sync_course(
-                    course_id=course_id,
-                    progress_cb=progress_callback,
-                    download_files=download_files,
-                )
-            except Exception as e:
-                logger.exception("Error syncing course %d: %s", course_id, e)
-                await queue.put({"stage": "error", "message": f"Sync failed: {e}"})
-            finally:
-                await queue.put(None)  # Sentinel to end stream
-
-        asyncio.create_task(run_sync_task())
+        job = sync_manager.start_job(
+            vault=vault,
+            site_id=site_id,
+            course_id=course_id,
+            course_name=course_name,
+            download_files=download_files,
+        )
+        queue = job.add_subscriber()
 
         async def event_generator() -> AsyncGenerator[str, None]:
-            while True:
-                item = await queue.get()
-                if item is None:
-                    yield "data: [DONE]\n\n"
-                    break
-                payload = json.dumps(item, ensure_ascii=False)
-                yield f"data: {payload}\n\n"
+            try:
+                while True:
+                    item = await queue.get()
+                    if item is None:
+                        yield "data: [DONE]\n\n"
+                        break
+                    payload = json.dumps(item, ensure_ascii=False)
+                    yield f"data: {payload}\n\n"
+            except asyncio.CancelledError:
+                pass
+            finally:
+                job.remove_subscriber(queue)
 
         return StreamingResponse(event_generator(), media_type="text/event-stream")
 

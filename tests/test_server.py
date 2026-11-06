@@ -51,7 +51,7 @@ def test_api_sites_and_vault(tmp_path: Path) -> None:
             "url": "week-1",
             "title": "Week 1",
             "body": (
-                '<p>Content of week 1 with file: '
+                "<p>Content of week 1 with file: "
                 '<a href="/courses/29010/files/999/download">Lecture</a></p>'
             ),
             "front_page": False,
@@ -89,3 +89,8 @@ def test_api_sites_and_vault(tmp_path: Path) -> None:
     page_data = resp.json()
     assert page_data["title"] == "Week 1"
     assert "/api/vault/files/ltu/29010/999" in page_data["body_rewritten"]
+
+    # Test list sync jobs endpoint
+    resp = client.get("/api/sync/jobs")
+    assert resp.status_code == 200
+    assert isinstance(resp.json(), list)
