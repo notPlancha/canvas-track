@@ -1,6 +1,5 @@
 """Unit tests for CanvasClient URL parsing and header handling."""
 
-import pytest
 from canvas_track.client import CanvasClient, parse_link_header
 from canvas_track.rewriter import CanvasLinkRewriter
 
