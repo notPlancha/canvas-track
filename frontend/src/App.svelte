@@ -116,7 +116,7 @@
     }
 
     const anyRunning = Object.values(syncJobs).some((j) => j.status === 'running');
-    const intervalMs = anyRunning ? 2000 : 6000;
+    const intervalMs = anyRunning ? 2000 : 30000;
     pollTimer = setTimeout(checkSyncJobs, intervalMs);
   }
 
@@ -132,11 +132,14 @@
     activeSiteId = newSiteId;
     selectedCourseId = null;
     loadCourses(newSiteId);
+    checkSyncJobs();
   }
 
   function triggerSync(courseId, courseName) {
     syncTarget = { id: courseId, name: courseName };
     isSyncOpen = true;
+    // Kick off faster polling immediately
+    setTimeout(checkSyncJobs, 500);
   }
 
   function openCourse(courseId) {

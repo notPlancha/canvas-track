@@ -56,6 +56,37 @@ class CanvasClient:
             "Accept": "application/json",
             "User-Agent": "CanvasTrack/0.1.0",
         }
+        self._http_client: httpx.AsyncClient | None = None
+
+    def _get_client(self) -> httpx.AsyncClient:
+        """Get or initialize persistent HTTP client session with connection pooling."""
+        if self._http_client is None or self._http_client.is_closed:
+            limits = httpx.Limits(
+                max_keepalive_connections=20, max_connections=50, keepalive_expiry=30.0
+            )
+            self._http_client = httpx.AsyncClient(
+                timeout=httpx.Timeout(self.timeout, read=60.0),
+                limits=limits,
+                headers=self._headers,
+                follow_redirects=True,
+            )
+        return self._http_client
+
+    async def aclose(self) -> None:
+        """Close persistent HTTP client session and release connections."""
+        if self._http_client is not None and not self._http_client.is_closed:
+            await self._http_client.aclose()
+            self._http_client = None
+
+    async def close(self) -> None:
+        """Alias for aclose."""
+        await self.aclose()
+
+    async def __aenter__(self) -> CanvasClient:
+        return self
+
+    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        await self.aclose()
 
     async def _handle_rate_limits(self, response: httpx.Response) -> None:
         """Throttle if Canvas rate limit remaining quota is low."""
@@ -88,38 +119,38 @@ class CanvasClient:
             url = f"{self.api_url}/{clean_endpoint}"
 
         backoff = 1.0
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            for attempt in range(retries):
-                try:
-                    response = await client.get(url, headers=self._headers, params=params)
-                    await self._handle_rate_limits(response)
+        client = self._get_client()
+        for attempt in range(retries):
+            try:
+                response = await client.get(url, headers=self._headers, params=params)
+                await self._handle_rate_limits(response)
 
-                    if response.status_code in (403, 429) and "rate limit" in response.text.lower():
-                        logger.warning(
-                            "Rate limited by Canvas (attempt %d/%d). Sleeping %.1fs",
-                            attempt + 1,
-                            retries,
-                            backoff,
-                        )
-                        await asyncio.sleep(backoff)
-                        backoff *= 2
-                        continue
-
-                    response.raise_for_status()
-                    return response
-                except httpx.HTTPStatusError as e:
-                    if e.response.status_code in (401, 404):
-                        # Do not retry unauthorized or not found
-                        raise
-                    if attempt == retries - 1:
-                        raise
+                if response.status_code in (403, 429) and "rate limit" in response.text.lower():
+                    logger.warning(
+                        "Rate limited by Canvas (attempt %d/%d). Sleeping %.1fs",
+                        attempt + 1,
+                        retries,
+                        backoff,
+                    )
                     await asyncio.sleep(backoff)
                     backoff *= 2
-                except (httpx.TransportError, httpx.TimeoutException):
-                    if attempt == retries - 1:
-                        raise
-                    await asyncio.sleep(backoff)
-                    backoff *= 2
+                    continue
+
+                response.raise_for_status()
+                return response
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code in (401, 404):
+                    # Do not retry unauthorized or not found
+                    raise
+                if attempt == retries - 1:
+                    raise
+                await asyncio.sleep(backoff)
+                backoff *= 2
+            except (httpx.TransportError, httpx.TimeoutException):
+                if attempt == retries - 1:
+                    raise
+                await asyncio.sleep(backoff)
+                backoff *= 2
 
         raise RuntimeError(f"Failed to fetch {url} after {retries} retries")
 
@@ -326,10 +357,8 @@ class CanvasClient:
             headers["Range"] = f"bytes={existing_size}-"
             mode = "ab"
 
-        async with (
-            httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client,
-            client.stream("GET", download_url, headers=headers) as resp,
-        ):
+        client = self._get_client()
+        async with client.stream("GET", download_url, headers=headers) as resp:
             if resp.status_code == 416:  # Range not satisfiable (already complete)
                 return True
             if resp.status_code not in (200, 206):

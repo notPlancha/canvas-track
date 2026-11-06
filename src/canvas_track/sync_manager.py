@@ -235,6 +235,8 @@ class SyncJobManager:
             except Exception as e:
                 logger.exception("Failed sync for %s (course %d): %s", site_id, course_id, e)
                 job.fail(str(e))
+            finally:
+                await client.aclose()
 
         job._task = asyncio.create_task(_run())
         return job

@@ -235,9 +235,7 @@ class VaultManager:
         path = self.get_api_raw_dir(site_id, course_id) / "folders.json"
         return self._read_raw_json(path) or []
 
-    def get_course_file_path(
-        self, site_id: str, course_id: int, file_id: int
-    ) -> Path | None:
+    def get_course_file_path(self, site_id: str, course_id: int, file_id: int) -> Path | None:
         """Find the local path on disk for a given course file ID."""
         files = self.get_files_metadata(site_id, course_id)
         target = next(
