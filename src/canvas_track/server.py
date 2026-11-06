@@ -38,6 +38,16 @@ class AddSiteRequest(BaseModel):
     site_id: str | None = None
 
 
+class UpdateSiteRequest(BaseModel):
+    domain: str
+    token: str
+    site_id: str | None = None
+
+
+class AddCommentRequest(BaseModel):
+    text: str
+
+
 def create_app(vault_dir: Path | str | None = None) -> FastAPI:
     vault = VaultManager(vault_dir)
     app = FastAPI(title="Canvas Track", version="0.1.0")
@@ -46,7 +56,7 @@ def create_app(vault_dir: Path | str | None = None) -> FastAPI:
         CORSMiddleware,
         allow_origins=["*"],
         allow_credentials=True,
-        allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
         allow_headers=["*"],
     )
 
@@ -61,6 +71,7 @@ def create_app(vault_dir: Path | str | None = None) -> FastAPI:
                 "base_url": s.base_url,
                 "user_name": s.user_name,
                 "user_id": s.user_id,
+                "token": s.token,
                 "created_at": s.created_at,
             }
             for s in sites
@@ -80,11 +91,28 @@ def create_app(vault_dir: Path | str | None = None) -> FastAPI:
                 msg = f"Failed to authenticate with Canvas at {domain}. Please check your token."
                 raise HTTPException(status_code=401, detail=msg) from e
 
+            # Check duplicate site detection
+            existing_dup = vault.find_duplicate_site(domain, user.id, payload.token.strip())
+            if existing_dup:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"Duplicate site! A site for user '{existing_dup.user_name or user.name}' "
+                        f"on {domain} is already registered under ID '{existing_dup.id}'."
+                    ),
+                )
+
             site_id = (
                 payload.site_id.strip()
                 if payload.site_id
                 else sanitize_filename(domain.replace(".", "_"))
             )
+            if vault.get_site(site_id):
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Site ID '{site_id}' is already in use. Please choose a different ID.",
+                )
+
             site = SiteConfig(
                 id=site_id,
                 domain=domain,
@@ -102,8 +130,69 @@ def create_app(vault_dir: Path | str | None = None) -> FastAPI:
                     "base_url": site.base_url,
                     "user_name": site.user_name,
                     "user_id": site.user_id,
+                    "token": site.token,
                 },
             }
+
+    @app.put("/api/sites/{site_id}")
+    async def update_site(site_id: str, payload: UpdateSiteRequest) -> dict[str, Any]:
+        existing = vault.get_site(site_id)
+        if not existing:
+            raise HTTPException(status_code=404, detail=f"Site '{site_id}' not found.")
+
+        domain = payload.domain.strip().lower()
+        if not domain:
+            raise HTTPException(status_code=400, detail="Canvas domain is required.")
+
+        async with CanvasClient(domain, payload.token) as client:
+            try:
+                user = await client.get_user_profile()
+            except Exception as e:
+                logger.error("Failed to authenticate with Canvas at %s: %s", domain, e)
+                msg = f"Failed to authenticate with Canvas at {domain}. Please check your token."
+                raise HTTPException(status_code=401, detail=msg) from e
+
+            new_sid = payload.site_id.strip() if payload.site_id else site_id
+            # Duplicate check excluding the current site
+            dup = vault.find_duplicate_site(
+                domain, user.id, payload.token.strip(), exclude_site_id=site_id
+            )
+            if dup:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Duplicate site! Matching account already registered as '{dup.id}'.",
+                )
+
+            if new_sid != site_id and vault.get_site(new_sid):
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Site ID '{new_sid}' is already in use. Please choose another ID.",
+                )
+
+            updated = vault.update_site(
+                site_id=site_id,
+                new_site_id=new_sid,
+                domain=domain,
+                token=payload.token.strip(),
+                user_name=user.name,
+                user_id=user.id,
+            )
+            return {
+                "success": True,
+                "site": {
+                    "id": updated.id,
+                    "domain": updated.domain,
+                    "base_url": updated.base_url,
+                    "user_name": updated.user_name,
+                    "user_id": updated.user_id,
+                    "token": updated.token,
+                },
+            }
+
+    @app.post("/api/sites/deduplicate")
+    def deduplicate_sites() -> dict[str, Any]:
+        removed = vault.deduplicate_sites()
+        return {"success": True, "removed": removed}
 
     @app.delete("/api/sites/{site_id}")
     def delete_site(site_id: str, delete_files: bool = Query(default=False)) -> dict[str, bool]:
@@ -176,6 +265,31 @@ def create_app(vault_dir: Path | str | None = None) -> FastAPI:
             download_files=download_files,
         )
         return {"status": job.status.status, "job": job.status.model_dump()}
+
+    @app.post("/api/sync/all")
+    async def sync_all_courses(
+        download_files: bool = Query(default=True),
+    ) -> dict[str, Any]:
+        """Trigger synchronization for all remote courses across all registered sites."""
+        sites = vault.list_sites()
+        started_jobs: list[dict[str, Any]] = []
+        for s in sites:
+            try:
+                async with CanvasClient(s.domain, s.token) as client:
+                    remote_courses = await client.list_courses()
+                for rc in remote_courses:
+                    job = sync_manager.start_job(
+                        vault=vault,
+                        site_id=s.id,
+                        course_id=rc.id,
+                        course_name=rc.name,
+                        download_files=download_files,
+                    )
+                    started_jobs.append(job.status.model_dump())
+            except Exception as e:
+                logger.error("Failed to query courses for sync all on site %s: %s", s.id, e)
+
+        return {"success": True, "count": len(started_jobs), "jobs": started_jobs}
 
     @app.get("/api/sites/{site_id}/courses/{course_id}/sync")
     async def sync_course_stream(
@@ -414,7 +528,31 @@ def create_app(vault_dir: Path | str | None = None) -> FastAPI:
             "message": f"Opened {file_path.name} in system viewer.",
         }
 
-    # 5. Serve Svelte Frontend Static Build
+    # 5. Page Comments / Notes
+    @app.get("/api/vault/courses/{site_id}/{course_id}/pages/{page_url}/comments")
+    def get_page_comments(site_id: str, course_id: int, page_url: str) -> list[dict[str, Any]]:
+        return vault.get_page_comments(site_id, course_id, page_url)
+
+    @app.post("/api/vault/courses/{site_id}/{course_id}/pages/{page_url}/comments")
+    def add_page_comment(
+        site_id: str, course_id: int, page_url: str, payload: AddCommentRequest
+    ) -> dict[str, Any]:
+        text = payload.text.strip()
+        if not text:
+            raise HTTPException(status_code=400, detail="Comment text cannot be empty.")
+        comment = vault.add_page_comment(site_id, course_id, page_url, text)
+        return {"success": True, "comment": comment}
+
+    @app.delete("/api/vault/courses/{site_id}/{course_id}/pages/{page_url}/comments/{comment_id}")
+    def delete_page_comment(
+        site_id: str, course_id: int, page_url: str, comment_id: str
+    ) -> dict[str, bool]:
+        deleted = vault.delete_page_comment(site_id, course_id, page_url, comment_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Comment not found.")
+        return {"success": True}
+
+    # 6. Serve Svelte Frontend Static Build
     static_dir = Path(__file__).parent / "static"
     if static_dir.exists():
         app.mount("/assets", StaticFiles(directory=static_dir / "assets"), name="assets")

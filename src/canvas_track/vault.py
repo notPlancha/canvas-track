@@ -14,6 +14,8 @@ import os
 import re
 import shutil
 import stat
+import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -54,6 +56,8 @@ class VaultManager:
     def _ensure_config(self) -> None:
         if not self.config_file.exists():
             self._save_raw_json(self.config_file, {"sites": []})
+        else:
+            self.deduplicate_sites()
 
     def _save_raw_json(self, path: Path, data: Any) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -83,6 +87,116 @@ class VaultManager:
             if s.id == site_id:
                 return s
         return None
+
+    def find_duplicate_site(
+        self,
+        domain: str,
+        user_id: int | None = None,
+        token: str | None = None,
+        exclude_site_id: str | None = None,
+    ) -> SiteConfig | None:
+        """Find an existing site that matches the same domain and user ID, or same token."""
+        clean_domain = domain.strip().lower()
+        clean_token = token.strip() if token else None
+        for s in self.list_sites():
+            if exclude_site_id and s.id == exclude_site_id:
+                continue
+            if clean_token and s.token == clean_token:
+                return s
+            if (
+                s.domain.strip().lower() == clean_domain
+                and user_id is not None
+                and s.user_id == user_id
+            ):
+                return s
+        return None
+
+    def deduplicate_sites(self) -> list[str]:
+        """Detect and remove existing duplicate sites from config.json.
+
+        Returns the IDs of the removed duplicate sites.
+        """
+        config = self._read_raw_json(self.config_file) or {"sites": []}
+        raw_sites = config.get("sites", [])
+        unique_sites: list[dict[str, Any]] = []
+        seen_user_domain: set[tuple[str, int]] = set()
+        seen_tokens: set[str] = set()
+        seen_ids: set[str] = set()
+        removed_ids: list[str] = []
+
+        for s in raw_sites:
+            sid = s.get("id")
+            domain = (s.get("domain") or "").strip().lower()
+            uid = s.get("user_id")
+            token = (s.get("token") or "").strip()
+
+            is_dup = (
+                sid in seen_ids
+                or (bool(token) and token in seen_tokens)
+                or (bool(domain) and uid is not None and (domain, uid) in seen_user_domain)
+            )
+
+            if is_dup:
+                if sid:
+                    removed_ids.append(sid)
+                logger.info("Removed duplicate site entry: %s (%s)", sid, domain)
+            else:
+                unique_sites.append(s)
+                if sid:
+                    seen_ids.add(sid)
+                if token:
+                    seen_tokens.add(token)
+                if domain and uid is not None:
+                    seen_user_domain.add((domain, uid))
+
+        if removed_ids:
+            config["sites"] = unique_sites
+            self._save_raw_json(self.config_file, config)
+
+        return removed_ids
+
+    def update_site(
+        self,
+        site_id: str,
+        new_site_id: str,
+        domain: str,
+        token: str,
+        user_name: str | None = None,
+        user_id: int | None = None,
+    ) -> SiteConfig:
+        """Update an existing site's configuration and optionally rename its directory."""
+        config = self._read_raw_json(self.config_file) or {"sites": []}
+        site_idx = next(
+            (i for i, s in enumerate(config.get("sites", [])) if s.get("id") == site_id),
+            None,
+        )
+        if site_idx is None:
+            raise ValueError(f"Site '{site_id}' not found.")
+
+        old_site_raw = config["sites"][site_idx]
+        new_sid = new_site_id.strip() if new_site_id else site_id
+        clean_domain = domain.strip().lower()
+
+        # Rename vault directory if site_id changed
+        if new_sid != site_id:
+            old_dir = self.root / "sites" / sanitize_filename(site_id)
+            new_dir = self.root / "sites" / sanitize_filename(new_sid)
+            if old_dir.exists() and not new_dir.exists():
+                old_dir.rename(new_dir)
+
+        updated_site = SiteConfig(
+            id=new_sid,
+            domain=clean_domain,
+            base_url=f"https://{clean_domain}",
+            user_name=user_name if user_name is not None else old_site_raw.get("user_name"),
+            user_id=user_id if user_id is not None else old_site_raw.get("user_id"),
+            token=token.strip(),
+            created_at=old_site_raw.get("created_at") or datetime.now().isoformat(),
+        )
+
+        config["sites"][site_idx] = updated_site.model_dump()
+        self._save_raw_json(self.config_file, config)
+        return updated_site
 
     def save_site(self, site: SiteConfig) -> None:
         config = self._read_raw_json(self.config_file) or {"sites": []}
@@ -343,3 +457,46 @@ class VaultManager:
         disc_dir = self.get_api_raw_dir(site_id, course_id) / "discussions"
         path = disc_dir / f"{topic_id}.json"
         return self._read_raw_json(path)
+
+    # Page Comments / Notes
+    def get_page_comments_path(self, site_id: str, course_id: int, page_url: str) -> Path:
+        """Get the JSON path where comments for a specific page are stored."""
+        return (
+            self.get_course_dir(site_id, course_id)
+            / "comments"
+            / f"{sanitize_filename(page_url)}.json"
+        )
+
+    def get_page_comments(
+        self, site_id: str, course_id: int, page_url: str
+    ) -> list[dict[str, Any]]:
+        """Retrieve local notes/comments for a specific page."""
+        path = self.get_page_comments_path(site_id, course_id, page_url)
+        return self._read_raw_json(path) or []
+
+    def add_page_comment(
+        self, site_id: str, course_id: int, page_url: str, text: str
+    ) -> dict[str, Any]:
+        """Add a local note/comment to a specific page."""
+        comments = self.get_page_comments(site_id, course_id, page_url)
+        new_comment = {
+            "id": str(uuid.uuid4())[:8],
+            "text": text.strip(),
+            "created_at": datetime.now().isoformat(),
+        }
+        comments.append(new_comment)
+        path = self.get_page_comments_path(site_id, course_id, page_url)
+        self._save_raw_json(path, comments)
+        return new_comment
+
+    def delete_page_comment(
+        self, site_id: str, course_id: int, page_url: str, comment_id: str
+    ) -> bool:
+        """Delete a local note/comment by its ID."""
+        comments = self.get_page_comments(site_id, course_id, page_url)
+        filtered = [c for c in comments if c.get("id") != comment_id]
+        if len(filtered) != len(comments):
+            path = self.get_page_comments_path(site_id, course_id, page_url)
+            self._save_raw_json(path, filtered)
+            return True
+        return False

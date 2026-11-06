@@ -189,3 +189,61 @@ def test_api_vault_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Non
     # Test open non-existent file
     resp = client.post("/api/vault/files/ltu/29010/99999/open")
     assert resp.status_code == 404
+
+
+def test_api_page_comments_and_sites_management(tmp_path: Path) -> None:
+    app = create_app(tmp_path)
+    client = TestClient(app)
+
+    vault = VaultManager(tmp_path)
+    site = SiteConfig(
+        id="ltu",
+        domain="canvas.ltu.se",
+        base_url="https://canvas.ltu.se",
+        user_name="Student",
+        user_id=1,
+        token="token_ltu",
+    )
+    vault.save_site(site)
+
+    # 1. Verify token is included in GET /api/sites
+    resp = client.get("/api/sites")
+    assert resp.status_code == 200
+    sites = resp.json()
+    assert len(sites) == 1
+    assert sites[0]["token"] == "token_ltu"
+
+    # 2. Test deduplicate endpoint
+    resp = client.post("/api/sites/deduplicate")
+    assert resp.status_code == 200
+    assert "removed" in resp.json()
+
+    # 3. Test Comments endpoints
+    # Empty comments initially
+    resp = client.get("/api/vault/courses/ltu/29010/pages/week-1/comments")
+    assert resp.status_code == 200
+    assert resp.json() == []
+
+    # Add comment
+    resp = client.post(
+        "/api/vault/courses/ltu/29010/pages/week-1/comments",
+        json={"text": "Review formulas for final."},
+    )
+    assert resp.status_code == 200
+    created = resp.json()["comment"]
+    assert created["text"] == "Review formulas for final."
+    comment_id = created["id"]
+
+    # Verify comment list
+    resp = client.get("/api/vault/courses/ltu/29010/pages/week-1/comments")
+    assert resp.status_code == 200
+    assert len(resp.json()) == 1
+
+    # Delete comment
+    resp = client.delete(f"/api/vault/courses/ltu/29010/pages/week-1/comments/{comment_id}")
+    assert resp.status_code == 200
+    assert resp.json()["success"] is True
+
+    # Verify deleted
+    resp = client.get("/api/vault/courses/ltu/29010/pages/week-1/comments")
+    assert resp.json() == []

@@ -141,7 +141,7 @@ class CanvasDiscussionTopic(BaseModel):
 class SiteConfig(BaseModel):
     id: str  # sanitized identifier or hash
     domain: str  # e.g., canvas.ltu.se
-    base_url: str  # https://canvas.ltu.se
+    base_url: str = ""  # https://canvas.ltu.se
     user_name: str | None = None
     user_id: int | None = None
     token: str  # Personal Access Token

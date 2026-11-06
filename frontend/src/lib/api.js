@@ -35,6 +35,19 @@ export async function addSite(domain, token, siteId = null) {
   });
 }
 
+export async function updateSite(siteId, domain, token, newSiteId = null) {
+  return fetchJson(`/api/sites/${encodeURIComponent(siteId)}`, {
+    method: 'PUT',
+    body: JSON.stringify({ domain, token, site_id: newSiteId }),
+  });
+}
+
+export async function deduplicateSites() {
+  return fetchJson('/api/sites/deduplicate', {
+    method: 'POST',
+  });
+}
+
 export async function deleteSite(siteId) {
   return fetchJson(`/api/sites/${encodeURIComponent(siteId)}`, {
     method: 'DELETE',
@@ -121,6 +134,32 @@ export async function triggerCourseSync(siteId, courseId, downloadFiles = true, 
   });
   return fetchJson(`/api/sites/${encodeURIComponent(siteId)}/courses/${courseId}/sync?${params.toString()}`, {
     method: 'POST',
+  });
+}
+
+export async function syncAllCourses(downloadFiles = true) {
+  const params = new URLSearchParams({
+    download_files: String(downloadFiles),
+  });
+  return fetchJson(`/api/sync/all?${params.toString()}`, {
+    method: 'POST',
+  });
+}
+
+export async function getPageComments(siteId, courseId, pageUrl) {
+  return fetchJson(`/api/vault/courses/${encodeURIComponent(siteId)}/${courseId}/pages/${encodeURIComponent(pageUrl)}/comments`);
+}
+
+export async function addPageComment(siteId, courseId, pageUrl, text) {
+  return fetchJson(`/api/vault/courses/${encodeURIComponent(siteId)}/${courseId}/pages/${encodeURIComponent(pageUrl)}/comments`, {
+    method: 'POST',
+    body: JSON.stringify({ text }),
+  });
+}
+
+export async function deletePageComment(siteId, courseId, pageUrl, commentId) {
+  return fetchJson(`/api/vault/courses/${encodeURIComponent(siteId)}/${courseId}/pages/${encodeURIComponent(pageUrl)}/comments/${encodeURIComponent(commentId)}`, {
+    method: 'DELETE',
   });
 }
 

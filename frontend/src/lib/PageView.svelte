@@ -1,5 +1,5 @@
 <script>
-  import { openVaultFile } from './api.js';
+  import { openVaultFile, getPageComments, addPageComment, deletePageComment } from './api.js';
   import CanvasLinkButtons from './CanvasLinkButtons.svelte';
 
   let {
@@ -12,6 +12,54 @@
 
   let showRawJson = $state(false);
   let statusToast = $state('');
+  let comments = $state([]);
+  let newCommentText = $state('');
+  let isAddingComment = $state(false);
+
+  $effect(() => {
+    if (page && page.url && siteId && courseId) {
+      loadComments(siteId, courseId, page.url);
+    } else {
+      comments = [];
+    }
+  });
+
+  async function loadComments(sId, cId, pUrl) {
+    try {
+      comments = await getPageComments(sId, cId, pUrl);
+    } catch (e) {
+      console.error('Failed to load comments', e);
+      comments = [];
+    }
+  }
+
+  async function handleAddComment(e) {
+    e.preventDefault();
+    const text = newCommentText.trim();
+    if (!text || !page?.url) return;
+    isAddingComment = true;
+    try {
+      const res = await addPageComment(siteId, courseId, page.url, text);
+      if (res.success && res.comment) {
+        comments = [...comments, res.comment];
+      }
+      newCommentText = '';
+    } catch (e) {
+      console.error('Failed to add comment', e);
+    } finally {
+      isAddingComment = false;
+    }
+  }
+
+  async function handleDeleteComment(commentId) {
+    if (!page?.url) return;
+    try {
+      await deletePageComment(siteId, courseId, page.url, commentId);
+      comments = comments.filter((c) => c.id !== commentId);
+    } catch (e) {
+      console.error('Failed to delete comment', e);
+    }
+  }
 
   async function handleContentClick(e) {
     const target = e.target.closest('a');
@@ -130,6 +178,72 @@
           <em>This page has no text or body content.</em>
         </div>
       {/if}
+    </div>
+
+    <!-- Page Notes & Comments Section -->
+    <div class="page-comments-section" style="margin-top: 40px; padding-top: 24px; border-top: 1px solid var(--canvas-border);">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
+        <h3 style="font-size: 16px; font-weight: 600; color: var(--canvas-navy); display: flex; align-items: center; gap: 8px; margin: 0;">
+          <span>📝</span> Local Page Notes & Comments
+          {#if comments.length > 0}
+            <span style="font-size: 12px; background: #E2E8F0; color: #4A5568; padding: 2px 8px; border-radius: 12px; font-weight: 500;">
+              {comments.length}
+            </span>
+          {/if}
+        </h3>
+        <span style="font-size: 12px; color: var(--canvas-text-muted);">
+          Saved locally in vault
+        </span>
+      </div>
+
+      <!-- Existing Comments List -->
+      {#if comments.length > 0}
+        <div style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px;">
+          {#each comments as c (c.id)}
+            <div style="background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 12px 16px; position: relative;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                <span style="font-size: 11px; color: var(--canvas-text-muted); font-weight: 500;">
+                  📅 {new Date(c.created_at).toLocaleString()}
+                </span>
+                <button
+                  type="button"
+                  class="btn btn-secondary btn-sm"
+                  style="padding: 2px 6px; font-size: 11px; color: #E53E3E; border-color: #FEB2B2;"
+                  onclick={() => handleDeleteComment(c.id)}
+                  title="Delete note"
+                >
+                  🗑️ Delete
+                </button>
+              </div>
+              <p style="margin: 0; font-size: 14px; line-height: 1.5; color: #2D3748; white-space: pre-wrap;">{c.text}</p>
+            </div>
+          {/each}
+        </div>
+      {:else}
+        <div style="padding: 16px; text-align: center; color: var(--canvas-text-muted); background: #F8FAFC; border: 1px dashed #E2E8F0; border-radius: 8px; margin-bottom: 20px; font-size: 13px;">
+          No notes on this page yet. Add personal reminders, summaries, or questions below.
+        </div>
+      {/if}
+
+      <!-- Add New Comment Box -->
+      <form onsubmit={handleAddComment} style="display: flex; flex-direction: column; gap: 8px;">
+        <textarea
+          class="form-input"
+          bind:value={newCommentText}
+          placeholder="Type a personal note or comment for this page..."
+          rows="3"
+          style="width: 100%; resize: vertical; font-family: inherit; font-size: 13px; line-height: 1.5;"
+        ></textarea>
+        <div style="display: flex; justify-content: flex-end;">
+          <button
+            type="submit"
+            class="btn btn-primary btn-sm"
+            disabled={isAddingComment || !newCommentText.trim()}
+          >
+            {isAddingComment ? 'Saving...' : '+ Add Note'}
+          </button>
+        </div>
+      </form>
     </div>
   </div>
 {:else}

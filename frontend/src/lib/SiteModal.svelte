@@ -1,13 +1,36 @@
 <script>
-  import { addSite } from './api.js';
+  import { addSite, updateSite } from './api.js';
 
-  let { open = false, onClose, onSiteAdded } = $props();
+  let {
+    open = false,
+    siteToEdit = null,
+    onClose = () => {},
+    onSiteAdded = () => {},
+    onSiteUpdated = () => {},
+  } = $props();
 
-  let domain = $state('canvas.ltu.se');
+  let domain = $state('');
   let token = $state('');
-  let siteId = $state('ltu');
+  let siteId = $state('');
+  let showToken = $state(false);
   let isLoading = $state(false);
   let errorMessage = $state('');
+
+  $effect(() => {
+    if (open) {
+      errorMessage = '';
+      showToken = false;
+      if (siteToEdit) {
+        domain = siteToEdit.domain || '';
+        token = siteToEdit.token || '';
+        siteId = siteToEdit.id || '';
+      } else {
+        domain = '';
+        token = '';
+        siteId = '';
+      }
+    }
+  });
 
   function openCanvasSettings() {
     let cleanDomain = domain.trim().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
@@ -22,9 +45,15 @@
 
     try {
       const cleanDomain = domain.trim().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
-      const res = await addSite(cleanDomain, token.trim(), siteId.trim() || null);
-      isLoading = false;
-      onSiteAdded(res.site);
+      if (siteToEdit) {
+        const res = await updateSite(siteToEdit.id, cleanDomain, token.trim(), siteId.trim() || null);
+        isLoading = false;
+        onSiteUpdated(res.site);
+      } else {
+        const res = await addSite(cleanDomain, token.trim(), siteId.trim() || null);
+        isLoading = false;
+        onSiteAdded(res.site);
+      }
       onClose();
     } catch (err) {
       isLoading = false;
@@ -37,7 +66,7 @@
   <div class="modal-backdrop" onclick={onClose} role="dialog" aria-modal="true" tabindex="-1">
     <div class="modal-dialog" onclick={(e) => e.stopPropagation()} role="document">
       <div class="modal-header">
-        <h2>Add Canvas Site</h2>
+        <h2>{siteToEdit ? 'Edit Canvas Site' : 'Add Canvas Site'}</h2>
         <button class="btn btn-secondary btn-sm" onclick={onClose}>✕</button>
       </div>
 
@@ -77,14 +106,30 @@
           </div>
 
           <div class="form-group">
-            <label class="form-label" for="site-token">Personal Access Token</label>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+              <label class="form-label" for="site-token" style="margin-bottom: 0;">Personal Access Token</label>
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm"
+                style="padding: 2px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;"
+                onclick={() => (showToken = !showToken)}
+                title={showToken ? 'Hide access token' : 'Show access token'}
+              >
+                {#if showToken}
+                  🙈 Hide Token
+                {:else}
+                  👁️ Show Token
+                {/if}
+              </button>
+            </div>
             <input
               id="site-token"
               class="form-input"
-              type="password"
+              type={showToken ? 'text' : 'password'}
               bind:value={token}
               placeholder="Paste token here..."
               required
+              style="font-family: monospace; font-size: 13px;"
             />
             <div class="form-hint">Read-only API access. Your token never leaves your local machine.</div>
           </div>
@@ -105,7 +150,9 @@
           <button type="button" class="btn btn-secondary" onclick={onClose} disabled={isLoading}>Cancel</button>
           <button type="submit" class="btn btn-primary" disabled={isLoading}>
             {#if isLoading}
-              Connecting...
+              Saving...
+            {:else if siteToEdit}
+              Save Changes
             {:else}
               Connect & Verify
             {/if}
