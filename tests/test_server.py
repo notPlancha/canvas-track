@@ -94,3 +94,16 @@ def test_api_sites_and_vault(tmp_path: Path) -> None:
     resp = client.get("/api/sync/jobs")
     assert resp.status_code == 200
     assert isinstance(resp.json(), list)
+
+    # Test delete vault course endpoint
+    resp = client.delete("/api/vault/courses/ltu/29010")
+    assert resp.status_code == 200
+    assert resp.json()["success"] is True
+
+    # Course should now be gone from vault
+    resp = client.get("/api/vault/courses/ltu/29010")
+    assert resp.status_code == 404
+
+    # Second delete returns 404
+    resp = client.delete("/api/vault/courses/ltu/29010")
+    assert resp.status_code == 404
