@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte';
-  import { getSites, getRemoteCourses, getVaultCourses } from './lib/api.js';
+  import { getSites, getRemoteCourses, getVaultCourses, getSyncJobs } from './lib/api.js';
 
   import SiteModal from './lib/SiteModal.svelte';
   import SyncModal from './lib/SyncModal.svelte';
@@ -12,6 +12,11 @@
   let courses = $state([]);
   let isLoadingCourses = $state(false);
   let courseFilter = $state('all'); // 'all' or 'synced'
+
+  // Sync tracking
+  let syncJobs = $state({});
+  let toasts = $state([]);
+  let pollTimer = null;
 
   // Current route
   let selectedCourseId = $state(null);
@@ -32,8 +37,16 @@
     })
   );
 
+  const runningJobs = $derived(
+    Object.values(syncJobs).filter((j) => j.status === 'running')
+  );
+
   onMount(async () => {
     await loadSites();
+    await checkSyncJobs();
+    return () => {
+      if (pollTimer) clearTimeout(pollTimer);
+    };
   });
 
   async function loadSites() {
@@ -54,10 +67,8 @@
     if (!siteId) return;
     isLoadingCourses = true;
     try {
-      // First try to load remote courses which includes sync status
       courses = await getRemoteCourses(siteId);
     } catch {
-      // If remote fails (offline mode), fallback to vault-only archived courses
       try {
         const archived = await getVaultCourses(siteId);
         courses = archived.map((m) => ({
@@ -77,6 +88,39 @@
     } finally {
       isLoadingCourses = false;
     }
+  }
+
+  async function checkSyncJobs() {
+    try {
+      const jobsList = await getSyncJobs();
+      const newMap = {};
+      for (const j of jobsList) {
+        newMap[j.job_id] = j;
+
+        const prev = syncJobs[j.job_id];
+        if (prev && prev.status === 'running' && j.status === 'completed') {
+          addToast(`✅ Sync completed: ${j.course_name || `Course ${j.course_id}`}`, 'success');
+          loadCourses(activeSiteId);
+        } else if (prev && prev.status === 'running' && j.status === 'error') {
+          addToast(`❌ Sync failed for ${j.course_name || `Course ${j.course_id}`}: ${j.error}`, 'error');
+        }
+      }
+      syncJobs = newMap;
+    } catch (e) {
+      console.error('Error polling sync jobs', e);
+    }
+
+    const anyRunning = Object.values(syncJobs).some((j) => j.status === 'running');
+    const intervalMs = anyRunning ? 2000 : 6000;
+    pollTimer = setTimeout(checkSyncJobs, intervalMs);
+  }
+
+  function addToast(message, type = 'info') {
+    const id = Date.now() + Math.random();
+    toasts = [...toasts, { id, message, type }];
+    setTimeout(() => {
+      toasts = toasts.filter((t) => t.id !== id);
+    }, 6000);
   }
 
   function handleSiteChange(newSiteId) {
@@ -164,6 +208,18 @@
               {/each}
             </select>
           {/if}
+
+          <!-- Background Sync Indicator in Header -->
+          {#if runningJobs.length > 0}
+            <button
+              class="top-bar-sync-status"
+              onclick={() => triggerSync(runningJobs[0].course_id, runningJobs[0].course_name)}
+              title="Click to view live sync log"
+            >
+              <span class="sync-pulse-dot"></span>
+              <span>Syncing {runningJobs.length} {runningJobs.length === 1 ? 'course' : 'courses'} in background...</span>
+            </button>
+          {/if}
         </div>
 
         <div class="top-bar-right">
@@ -230,6 +286,10 @@
         {:else}
           <div class="card-grid">
             {#each filteredCourses as course}
+              {@const jobKey = `${activeSiteId}:${course.id}`}
+              {@const job = syncJobs[jobKey]}
+              {@const isSyncing = job && job.status === 'running'}
+
               <div class="course-card">
                 <div class="course-card-header">
                   <h3>{course.name}</h3>
@@ -237,47 +297,71 @@
                 </div>
 
                 <div class="course-card-body">
-                  <div class="course-card-stats">
-                    {#if course.is_synced}
-                      <span class="stat-pill" style="color: #137333; background: #E6F4EA;">
-                        ✓ Synced: {new Date(course.last_synced_at).toLocaleDateString()}
-                      </span>
-                      <span class="stat-pill">📄 {course.total_pages} Pages</span>
-                      <span class="stat-pill">📦 {course.total_modules} Modules</span>
-                    {:else}
-                      <span class="stat-pill" style="color: #B06000; background: #FEF7E0;">
-                        ☁️ Available on Canvas (Not Synced)
-                      </span>
-                    {/if}
-                  </div>
+                  {#if isSyncing}
+                    <!-- Live Background Syncing Indicator on Course Card -->
+                    <div class="card-syncing-banner">
+                      <div class="syncing-header">
+                        <span class="sync-spinner"></span>
+                        <span class="sync-stage-text">Syncing: <strong style="text-transform: capitalize;">{job.stage}</strong></span>
+                        <span class="sync-pct-text">{job.percent}%</span>
+                      </div>
+                      <div class="sync-progress-bar-mini">
+                        <div class="sync-progress-fill-mini" style="width: {job.percent}%;"></div>
+                      </div>
+                      <div class="sync-msg-mini" title={job.message}>{job.message}</div>
+                      <div class="course-card-footer" style="padding-top: 8px;">
+                        <button
+                          class="btn btn-secondary btn-sm"
+                          style="width: 100%; justify-content: center;"
+                          onclick={() => triggerSync(course.id, course.name)}
+                        >
+                          👁️ View Live Progress
+                        </button>
+                      </div>
+                    </div>
+                  {:else}
+                    <div class="course-card-stats">
+                      {#if course.is_synced}
+                        <span class="stat-pill" style="color: #137333; background: #E6F4EA;">
+                          ✓ Synced: {new Date(course.last_synced_at).toLocaleDateString()}
+                        </span>
+                        <span class="stat-pill">📄 {course.total_pages} Pages</span>
+                        <span class="stat-pill">📦 {course.total_modules} Modules</span>
+                      {:else}
+                        <span class="stat-pill" style="color: #B06000; background: #FEF7E0;">
+                          ☁️ Available on Canvas (Not Synced)
+                        </span>
+                      {/if}
+                    </div>
 
-                  <div class="course-card-footer">
-                    {#if course.is_synced}
-                      <button
-                        class="btn btn-primary btn-sm"
-                        onclick={() => openCourse(course.id)}
-                      >
-                        📖 Read Offline
-                      </button>
-                    {:else}
-                      <button
-                        class="btn btn-secondary btn-sm"
-                        onclick={() => triggerSync(course.id, course.name)}
-                      >
-                        ⬇️ Sync to Vault
-                      </button>
-                    {/if}
+                    <div class="course-card-footer">
+                      {#if course.is_synced}
+                        <button
+                          class="btn btn-primary btn-sm"
+                          onclick={() => openCourse(course.id)}
+                        >
+                          📖 Read Offline
+                        </button>
+                      {:else}
+                        <button
+                          class="btn btn-secondary btn-sm"
+                          onclick={() => triggerSync(course.id, course.name)}
+                        >
+                          ⬇️ Sync to Vault
+                        </button>
+                      {/if}
 
-                    {#if course.is_synced}
-                      <button
-                        class="btn btn-secondary btn-sm"
-                        onclick={() => triggerSync(course.id, course.name)}
-                        title="Re-sync updates"
-                      >
-                        ↻ Sync
-                      </button>
-                    {/if}
-                  </div>
+                      {#if course.is_synced}
+                        <button
+                          class="btn btn-secondary btn-sm"
+                          onclick={() => triggerSync(course.id, course.name)}
+                          title="Re-sync updates"
+                        >
+                          ↻ Sync
+                        </button>
+                      {/if}
+                    </div>
+                  {/if}
                 </div>
               </div>
             {/each}
@@ -310,3 +394,12 @@
     loadCourses(activeSiteId);
   }}
 />
+
+<!-- Toast Notifications -->
+<div class="toast-container">
+  {#each toasts as t (t.id)}
+    <div class="toast-item {t.type}">
+      <span>{t.message}</span>
+    </div>
+  {/each}
+</div>

@@ -89,8 +89,31 @@ export async function getVaultDiscussionThread(siteId, courseId, topicId) {
   return fetchJson(`/api/vault/courses/${encodeURIComponent(siteId)}/${courseId}/discussions/${topicId}`);
 }
 
-export function subscribeSync(siteId, courseId, downloadFiles, onEvent, onDone, onError) {
-  const url = `${BASE_URL}/api/sites/${encodeURIComponent(siteId)}/courses/${courseId}/sync?download_files=${downloadFiles}`;
+export async function getSyncJobs(siteId = null) {
+  const url = siteId ? `/api/sync/jobs?site_id=${encodeURIComponent(siteId)}` : '/api/sync/jobs';
+  return fetchJson(url);
+}
+
+export async function getCourseSyncStatus(siteId, courseId) {
+  return fetchJson(`/api/sites/${encodeURIComponent(siteId)}/courses/${courseId}/sync/status`);
+}
+
+export async function triggerCourseSync(siteId, courseId, downloadFiles = true, courseName = '') {
+  const params = new URLSearchParams({
+    download_files: String(downloadFiles),
+    course_name: courseName || '',
+  });
+  return fetchJson(`/api/sites/${encodeURIComponent(siteId)}/courses/${courseId}/sync?${params.toString()}`, {
+    method: 'POST',
+  });
+}
+
+export function subscribeSync(siteId, courseId, downloadFiles = true, courseName = '', onEvent = () => {}, onDone = () => {}, onError = () => {}) {
+  const params = new URLSearchParams({
+    download_files: String(downloadFiles),
+    course_name: courseName || '',
+  });
+  const url = `${BASE_URL}/api/sites/${encodeURIComponent(siteId)}/courses/${courseId}/sync?${params.toString()}`;
   const es = new EventSource(url);
 
   es.onmessage = (event) => {
@@ -101,12 +124,15 @@ export function subscribeSync(siteId, courseId, downloadFiles, onEvent, onDone, 
     }
     try {
       const data = JSON.parse(event.data);
-      if (data.stage === 'error') {
+      if (data.stage === 'error' || data.status === 'error') {
         es.close();
-        onError(new Error(data.message));
+        onError(new Error(data.message || data.error || 'Sync failed.'));
         return;
       }
       onEvent(data);
+      if (data.status === 'completed' || data.stage === 'done') {
+        onDone();
+      }
     } catch (e) {
       console.error('Error parsing SSE event', e);
     }
