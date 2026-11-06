@@ -5,6 +5,7 @@
   import SiteModal from './lib/SiteModal.svelte';
   import SyncModal from './lib/SyncModal.svelte';
   import CourseViewer from './lib/CourseViewer.svelte';
+  import CanvasLinkButtons from './lib/CanvasLinkButtons.svelte';
 
   // State
   let sites = $state([]);
@@ -364,24 +365,33 @@
                     </div>
 
                     <div class="course-card-footer">
-                      {#if course.is_synced}
-                        <button
-                          class="btn btn-primary btn-sm"
-                          onclick={() => openCourse(course.id)}
-                        >
-                          📖 Read Offline
-                        </button>
-                      {:else}
-                        <button
-                          class="btn btn-secondary btn-sm"
-                          onclick={() => triggerSync(course.id, course.name)}
-                        >
-                          ⬇️ Sync to Vault
-                        </button>
-                      {/if}
+                      <div style="display: flex; gap: 8px; align-items: center;">
+                        {#if course.is_synced}
+                          <button
+                            class="btn btn-primary btn-sm"
+                            onclick={() => openCourse(course.id)}
+                          >
+                            📖 Read Offline
+                          </button>
+                        {:else}
+                          <button
+                            class="btn btn-secondary btn-sm"
+                            onclick={() => triggerSync(course.id, course.name)}
+                          >
+                            ⬇️ Sync to Vault
+                          </button>
+                        {/if}
+
+                        {#if activeSite}
+                          <CanvasLinkButtons
+                            url={`https://${activeSite.domain}/courses/${course.id}`}
+                            label="course"
+                          />
+                        {/if}
+                      </div>
 
                       {#if course.is_synced}
-                        <div style="display: flex; gap: 6px;">
+                        <div style="display: flex; gap: 6px; align-items: center;">
                           <button
                             class="btn btn-secondary btn-sm"
                             onclick={() => triggerSync(course.id, course.name)}

@@ -1,5 +1,6 @@
 <script>
   import { openVaultFile } from './api.js';
+  import CanvasLinkButtons from './CanvasLinkButtons.svelte';
 
   let { files = [], siteId = '', courseId = 0 } = $props();
 
@@ -154,23 +155,26 @@
                 {/if}
               </td>
               <td style="text-align: right; white-space: nowrap;">
-                <button
-                  type="button"
-                  class="btn btn-primary btn-sm"
-                  onclick={() => handleOpenFile(f.id, f.display_name)}
-                  title="Open in system default application"
-                >
-                  {openingStatus[f.id] || '📂 Open File'}
-                </button>
-                <a
-                  href="/api/vault/files/{encodeURIComponent(siteId)}/{courseId}/{f.id}"
-                  target="_blank"
-                  class="btn btn-secondary btn-sm"
-                  style="margin-left: 6px; text-decoration: none;"
-                  title="View / Download in browser"
-                >
-                  Browser
-                </a>
+                <div style="display: inline-flex; align-items: center; gap: 6px;">
+                  <button
+                    type="button"
+                    class="btn btn-primary btn-sm"
+                    onclick={() => handleOpenFile(f.id, f.display_name)}
+                    title="Open in system default application"
+                  >
+                    {openingStatus[f.id] || '📂 Open File'}
+                  </button>
+                  <a
+                    href="/api/vault/files/{encodeURIComponent(siteId)}/{courseId}/{f.id}"
+                    target="_blank"
+                    class="btn btn-secondary btn-sm"
+                    style="text-decoration: none;"
+                    title="View / Download in browser"
+                  >
+                    Browser
+                  </a>
+                  <CanvasLinkButtons url={f.url || f.html_url} label="file" />
+                </div>
               </td>
             </tr>
           {/each}

@@ -1,5 +1,6 @@
 <script>
   import { openVaultFile } from './api.js';
+  import CanvasLinkButtons from './CanvasLinkButtons.svelte';
 
   let {
     page = null,
@@ -85,13 +86,16 @@
         </div>
       </div>
 
-      <button
-        class="btn btn-secondary btn-sm"
-        onclick={() => showRawJson = !showRawJson}
-        title="View Canvas API JSON"
-      >
-        {showRawJson ? 'Hide Raw JSON' : '🔍 Inspect API JSON'}
-      </button>
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <CanvasLinkButtons url={page.html_url} label="page" />
+        <button
+          class="btn btn-secondary btn-sm"
+          onclick={() => showRawJson = !showRawJson}
+          title="View Canvas API JSON"
+        >
+          {showRawJson ? 'Hide Raw JSON' : '🔍 Inspect API JSON'}
+        </button>
+      </div>
     </div>
 
     {#if showRawJson}

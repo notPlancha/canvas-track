@@ -21,6 +21,7 @@
   import DiscussionsView from './DiscussionsView.svelte';
   import AnnouncementsView from './AnnouncementsView.svelte';
   import FilesView from './FilesView.svelte';
+  import CanvasLinkButtons from './CanvasLinkButtons.svelte';
 
   let { siteId = '', courseId = 0, onBack, onTriggerSync, onDeleteCourse } = $props();
 
@@ -166,6 +167,9 @@
       <span class="offline-badge">
         ✓ Local Offline Vault
       </span>
+      {#if courseData.canvas_url}
+        <CanvasLinkButtons url={courseData.canvas_url} label="course" />
+      {/if}
       <button class="btn btn-secondary btn-sm" onclick={() => onTriggerSync(courseId)}>
         ↻ Re-sync Course
       </button>

@@ -1,4 +1,6 @@
 <script>
+  import CanvasLinkButtons from './CanvasLinkButtons.svelte';
+
   let { assignments = [], submissions = [] } = $props();
 
   let selectedAssignment = $state(null);
@@ -14,10 +16,14 @@
 
 <div>
   {#if selectedAssignment}
-    <div style="margin-bottom: 16px;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
       <button class="btn btn-secondary btn-sm" onclick={() => (selectedAssignment = null)}>
         ← Back to All Assignments
       </button>
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <span style="font-size: 12px; color: var(--canvas-text-muted);">Canvas original:</span>
+        <CanvasLinkButtons url={selectedAssignment.html_url} label="assignment" />
+      </div>
     </div>
 
     <div style="background: #fff; border: 1px solid var(--canvas-border); border-radius: 8px; padding: 28px; box-shadow: var(--shadow-sm);">
@@ -126,7 +132,10 @@
               </span>
             {/if}
 
-            <button class="btn btn-secondary btn-sm" style="margin-left: 12px;">View Details →</button>
+            <div style="display: flex; align-items: center; gap: 6px; margin-left: 12px;">
+              <button class="btn btn-secondary btn-sm">View Details →</button>
+              <CanvasLinkButtons url={assign.html_url} label="assignment" />
+            </div>
           </div>
         {/each}
       {/if}

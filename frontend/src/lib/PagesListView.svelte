@@ -1,4 +1,6 @@
 <script>
+  import CanvasLinkButtons from './CanvasLinkButtons.svelte';
+
   let { pages = [], onSelectPage } = $props();
 
   let searchQuery = $state('');
@@ -65,7 +67,10 @@
               {/if}
             </div>
           </div>
-          <button class="btn btn-secondary btn-sm">Read Page →</button>
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <button class="btn btn-secondary btn-sm">Read Page →</button>
+            <CanvasLinkButtons url={page.html_url} label="page" />
+          </div>
         </div>
       {/each}
     {/if}
