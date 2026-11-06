@@ -195,6 +195,14 @@
     <div class="course-sidebar">
       <button
         type="button"
+        class="course-nav-item {activeTab === 'announcements' ? 'active' : ''}"
+        onclick={() => { activeTab = 'announcements'; }}
+      >
+        <span>📢</span> Announcements ({announcements.length})
+      </button>
+
+      <button
+        type="button"
         class="course-nav-item {activeTab === 'home' ? 'active' : ''}"
         onclick={() => { activeTab = 'home'; currentPage = null; }}
       >
@@ -231,14 +239,6 @@
         onclick={() => { activeTab = 'discussions'; }}
       >
         <span>💬</span> Discussions ({discussions.length})
-      </button>
-
-      <button
-        type="button"
-        class="course-nav-item {activeTab === 'announcements' ? 'active' : ''}"
-        onclick={() => { activeTab = 'announcements'; }}
-      >
-        <span>📢</span> Announcements ({announcements.length})
       </button>
 
       <button
