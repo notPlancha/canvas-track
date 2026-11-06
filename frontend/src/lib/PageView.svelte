@@ -1,9 +1,18 @@
 <script>
-  let { page = null, isFrontPage = false, onNavigatePage } = $props();
+  import { openVaultFile } from './api.js';
+
+  let {
+    page = null,
+    isFrontPage = false,
+    siteId = '',
+    courseId = 0,
+    onNavigatePage,
+  } = $props();
 
   let showRawJson = $state(false);
+  let statusToast = $state('');
 
-  function handleContentClick(e) {
+  async function handleContentClick(e) {
     const target = e.target.closest('a');
     if (!target) return;
 
@@ -24,6 +33,32 @@
         }
       }
       window.location.hash = href;
+      return;
+    }
+
+    // Check if it's a local vault file URL: /api/vault/files/:siteId/:courseId/:fileId
+    if (href.startsWith('/api/vault/files/')) {
+      e.preventDefault();
+      const parts = href.split('/').filter(Boolean);
+      const fId = parts[parts.length - 1];
+      const sId = parts[3] || siteId;
+      const cId = parts[4] || courseId;
+
+      statusToast = '📂 Opening file with default system application...';
+      try {
+        await openVaultFile(sId, cId, fId);
+        statusToast = '✓ File opened in system viewer!';
+        setTimeout(() => {
+          statusToast = '';
+        }, 3000);
+      } catch (err) {
+        console.error('System open failed, opening via browser fallback', err);
+        statusToast = 'Opening via browser...';
+        window.open(href, '_blank');
+        setTimeout(() => {
+          statusToast = '';
+        }, 3000);
+      }
     }
   }
 </script>
@@ -62,6 +97,12 @@
     {#if showRawJson}
       <div style="background: #1E272E; color: #E0E4E8; padding: 14px; border-radius: 6px; font-family: monospace; font-size: 12px; margin-bottom: 24px; max-height: 350px; overflow-y: auto;">
         <pre>{JSON.stringify(page, null, 2)}</pre>
+      </div>
+    {/if}
+
+    {#if statusToast}
+      <div style="background: #E8F0FE; color: #1967D2; padding: 10px 16px; border-radius: 6px; font-size: 13px; font-weight: 500; margin-bottom: 16px; border: 1px solid #D2E3FC; display: flex; align-items: center; gap: 8px;">
+        <span>ℹ️</span> {statusToast}
       </div>
     {/if}
 

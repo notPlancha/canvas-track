@@ -1,7 +1,17 @@
 <script>
-  let { modules = [], onNavigatePage, onNavigateAssignment, onNavigateDiscussion } = $props();
+  import { openVaultFile } from './api.js';
+
+  let {
+    modules = [],
+    siteId = '',
+    courseId = 0,
+    onNavigatePage,
+    onNavigateAssignment,
+    onNavigateDiscussion,
+  } = $props();
 
   let collapsed = $state({});
+  let fileOpeningStatus = $state({});
 
   function toggleModule(moduleId) {
     collapsed[moduleId] = !collapsed[moduleId];
@@ -20,9 +30,30 @@
     }
   }
 
+  async function handleFileClick(fileId) {
+    if (!fileId) return;
+    fileOpeningStatus[fileId] = 'Opening...';
+    try {
+      await openVaultFile(siteId, courseId, fileId);
+      fileOpeningStatus[fileId] = '✓ Opened!';
+      setTimeout(() => {
+        delete fileOpeningStatus[fileId];
+      }, 2500);
+    } catch (e) {
+      console.error('Failed to open file via system viewer', e);
+      fileOpeningStatus[fileId] = 'Browser open...';
+      window.open(`/api/vault/files/${encodeURIComponent(siteId)}/${courseId}/${fileId}`, '_blank');
+      setTimeout(() => {
+        delete fileOpeningStatus[fileId];
+      }, 2500);
+    }
+  }
+
   function handleItemClick(item) {
     if (item.type === 'Page' && item.page_url) {
       if (onNavigatePage) onNavigatePage(item.page_url);
+    } else if (item.type === 'File' && item.content_id) {
+      handleFileClick(item.content_id);
     } else if (item.type === 'Assignment' && item.content_id) {
       if (onNavigateAssignment) onNavigateAssignment(item.content_id);
     } else if (item.type === 'Discussion' && item.content_id) {
@@ -78,6 +109,15 @@
                   </div>
                   {#if item.type === 'Page'}
                     <span class="btn btn-secondary btn-sm" style="font-size: 11px; padding: 3px 8px;">View Page</span>
+                  {:else if item.type === 'File'}
+                    <button
+                      type="button"
+                      class="btn btn-secondary btn-sm"
+                      style="font-size: 11px; padding: 3px 8px;"
+                      onclick={(e) => { e.stopPropagation(); handleFileClick(item.content_id); }}
+                    >
+                      {fileOpeningStatus[item.content_id] || '📂 Open File'}
+                    </button>
                   {/if}
                 </div>
               {/if}
