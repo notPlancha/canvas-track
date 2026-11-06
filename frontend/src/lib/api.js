@@ -95,6 +95,16 @@ export async function getVaultDiscussionThread(siteId, courseId, topicId) {
   return fetchJson(`/api/vault/courses/${encodeURIComponent(siteId)}/${courseId}/discussions/${topicId}`);
 }
 
+export async function getVaultFiles(siteId, courseId) {
+  return fetchJson(`/api/vault/courses/${encodeURIComponent(siteId)}/${courseId}/files`);
+}
+
+export async function openVaultFile(siteId, courseId, fileId) {
+  return fetchJson(`/api/vault/files/${encodeURIComponent(siteId)}/${courseId}/${fileId}/open`, {
+    method: 'POST',
+  });
+}
+
 export async function getSyncJobs(siteId = null) {
   const url = siteId ? `/api/sync/jobs?site_id=${encodeURIComponent(siteId)}` : '/api/sync/jobs';
   return fetchJson(url);

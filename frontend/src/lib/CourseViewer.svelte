@@ -10,6 +10,8 @@
     getVaultSubmissions,
     getVaultAnnouncements,
     getVaultDiscussions,
+    getVaultFiles,
+    openVaultFile,
   } from './api.js';
 
   import PageView from './PageView.svelte';
@@ -18,10 +20,11 @@
   import AssignmentsView from './AssignmentsView.svelte';
   import DiscussionsView from './DiscussionsView.svelte';
   import AnnouncementsView from './AnnouncementsView.svelte';
+  import FilesView from './FilesView.svelte';
 
   let { siteId = '', courseId = 0, onBack, onTriggerSync, onDeleteCourse } = $props();
 
-  let activeTab = $state('home'); // home, pages, modules, assignments, discussions, announcements, syllabus
+  let activeTab = $state('home'); // home, pages, modules, assignments, discussions, announcements, files, syllabus
   let courseData = $state(null);
   let frontPage = $state(null);
   let pages = $state([]);
@@ -31,6 +34,7 @@
   let submissions = $state([]);
   let announcements = $state([]);
   let discussions = $state([]);
+  let files = $state([]);
   let isLoading = $state(true);
 
   onMount(async () => {
@@ -86,10 +90,34 @@
         discussions = [];
       }
 
+      // Load files
+      try {
+        files = await getVaultFiles(siteId, courseId);
+      } catch {
+        files = [];
+      }
+
     } catch (e) {
       console.error('Failed to load vault course', e);
     } finally {
       isLoading = false;
+    }
+  }
+
+  async function handleHtmlFileClick(e) {
+    const target = e.target.closest('a');
+    if (!target) return;
+    const href = target.getAttribute('href');
+    if (!href) return;
+    if (href.startsWith('/api/vault/files/')) {
+      e.preventDefault();
+      const parts = href.split('/').filter(Boolean);
+      const fId = parts[parts.length - 1];
+      try {
+        await openVaultFile(siteId, courseId, fId);
+      } catch (err) {
+        window.open(href, '_blank');
+      }
     }
   }
 
@@ -204,6 +232,14 @@
         <span>📢</span> Announcements ({announcements.length})
       </button>
 
+      <button
+        type="button"
+        class="course-nav-item {activeTab === 'files' ? 'active' : ''}"
+        onclick={() => { activeTab = 'files'; }}
+      >
+        <span>📁</span> Files ({files.length})
+      </button>
+
       {#if courseData.syllabus_rewritten}
         <button
           type="button"
@@ -223,12 +259,16 @@
           <PageView
             page={frontPage}
             isFrontPage={true}
+            {siteId}
+            {courseId}
             onNavigatePage={selectPage}
           />
         {:else if courseData.meta.default_view === 'modules' && modules.length > 0}
           <h2 style="font-size: 20px; font-weight: 700; margin-bottom: 20px;">Course Modules</h2>
           <ModulesView
             {modules}
+            {siteId}
+            {courseId}
             onNavigatePage={selectPage}
             onNavigateAssignment={() => { activeTab = 'assignments'; }}
             onNavigateDiscussion={() => { activeTab = 'discussions'; }}
@@ -236,7 +276,9 @@
         {:else if courseData.syllabus_rewritten}
           <div class="wiki-page-container">
             <h1 class="wiki-page-title" style="margin-bottom: 20px;">Syllabus</h1>
-            <div class="wiki-content">
+            <!-- svelte-ignore a11y_click_events_have_key_events -->
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <div class="wiki-content" onclick={handleHtmlFileClick}>
               {@html courseData.syllabus_rewritten}
             </div>
           </div>
@@ -259,6 +301,8 @@
           <PageView
             page={currentPage}
             isFrontPage={currentPage.front_page || (frontPage && currentPage.url === frontPage.url)}
+            {siteId}
+            {courseId}
             onNavigatePage={selectPage}
           />
         {:else}
@@ -271,6 +315,8 @@
       {:else if activeTab === 'modules'}
         <ModulesView
           {modules}
+          {siteId}
+          {courseId}
           onNavigatePage={selectPage}
           onNavigateAssignment={() => { activeTab = 'assignments'; }}
           onNavigateDiscussion={() => { activeTab = 'discussions'; }}
@@ -294,10 +340,19 @@
           {announcements}
         />
 
+      {:else if activeTab === 'files'}
+        <FilesView
+          {files}
+          {siteId}
+          {courseId}
+        />
+
       {:else if activeTab === 'syllabus'}
         <div class="wiki-page-container" style="background: #fff; padding: 32px; border-radius: 8px; border: 1px solid var(--canvas-border);">
           <h1 class="wiki-page-title" style="margin-bottom: 20px;">Course Syllabus</h1>
-          <div class="wiki-content">
+          <!-- svelte-ignore a11y_click_events_have_key_events -->
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <div class="wiki-content" onclick={handleHtmlFileClick}>
             {@html courseData.syllabus_rewritten}
           </div>
         </div>
