@@ -1,4 +1,6 @@
 <script>
+  import CanvasLinkButtons from './CanvasLinkButtons.svelte';
+
   let { announcements = [] } = $props();
 </script>
 
@@ -20,11 +22,14 @@
               <h3 style="font-size: 17px; font-weight: 700; color: var(--canvas-navy);">
                 {ann.title}
               </h3>
-              {#if ann.posted_at}
-                <span style="font-size: 12px; color: var(--canvas-text-muted); background: #E0E4E8; padding: 2px 8px; border-radius: 10px;">
-                  {new Date(ann.posted_at).toLocaleDateString()}
-                </span>
-              {/if}
+              <div style="display: flex; align-items: center; gap: 8px;">
+                {#if ann.posted_at}
+                  <span style="font-size: 12px; color: var(--canvas-text-muted); background: #E0E4E8; padding: 2px 8px; border-radius: 10px;">
+                    {new Date(ann.posted_at).toLocaleDateString()}
+                  </span>
+                {/if}
+                <CanvasLinkButtons url={ann.html_url} label="announcement" />
+              </div>
             </div>
 
             <div style="font-size: 12px; color: var(--canvas-text-muted); margin-bottom: 14px;">

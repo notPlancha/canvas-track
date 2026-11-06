@@ -241,10 +241,14 @@ def create_app(vault_dir: Path | str | None = None) -> FastAPI:
             rewriter = get_rewriter(site_id, course_id)
             syllabus = rewriter.rewrite_html(syllabus)
 
+        site = vault.get_site(site_id)
+        canvas_url = f"https://{site.domain}/courses/{course_id}" if site and site.domain else ""
+
         return {
             "meta": meta.model_dump(),
             "course": raw_course,
             "syllabus_rewritten": syllabus,
+            "canvas_url": canvas_url,
         }
 
     @app.delete("/api/vault/courses/{site_id}/{course_id}")

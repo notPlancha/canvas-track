@@ -1,5 +1,6 @@
 <script>
   import { openVaultFile } from './api.js';
+  import CanvasLinkButtons from './CanvasLinkButtons.svelte';
 
   let {
     modules = [],
@@ -107,18 +108,21 @@
                     <div style="font-weight: 500; color: var(--canvas-navy);">{item.title}</div>
                     <div style="font-size: 11px; color: var(--canvas-text-muted);">{item.type}</div>
                   </div>
-                  {#if item.type === 'Page'}
-                    <span class="btn btn-secondary btn-sm" style="font-size: 11px; padding: 3px 8px;">View Page</span>
-                  {:else if item.type === 'File'}
-                    <button
-                      type="button"
-                      class="btn btn-secondary btn-sm"
-                      style="font-size: 11px; padding: 3px 8px;"
-                      onclick={(e) => { e.stopPropagation(); handleFileClick(item.content_id); }}
-                    >
-                      {fileOpeningStatus[item.content_id] || '📂 Open File'}
-                    </button>
-                  {/if}
+                  <div style="display: flex; align-items: center; gap: 6px;">
+                    {#if item.type === 'Page'}
+                      <span class="btn btn-secondary btn-sm" style="font-size: 11px; padding: 3px 8px;">View Page</span>
+                    {:else if item.type === 'File'}
+                      <button
+                        type="button"
+                        class="btn btn-secondary btn-sm"
+                        style="font-size: 11px; padding: 3px 8px;"
+                        onclick={(e) => { e.stopPropagation(); handleFileClick(item.content_id); }}
+                      >
+                        {fileOpeningStatus[item.content_id] || '📂 Open File'}
+                      </button>
+                    {/if}
+                    <CanvasLinkButtons url={item.html_url} label="item" />
+                  </div>
                 </div>
               {/if}
             {/each}

@@ -1,5 +1,6 @@
 <script>
   import { getVaultDiscussionThread } from './api.js';
+  import CanvasLinkButtons from './CanvasLinkButtons.svelte';
 
   let { siteId = '', courseId = 0, discussions = [] } = $props();
 
@@ -23,10 +24,14 @@
 
 <div>
   {#if selectedTopic}
-    <div style="margin-bottom: 16px;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
       <button class="btn btn-secondary btn-sm" onclick={() => (selectedTopic = null)}>
         ← Back to All Discussions
       </button>
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <span style="font-size: 12px; color: var(--canvas-text-muted);">Canvas original:</span>
+        <CanvasLinkButtons url={selectedTopic.html_url} label="topic" />
+      </div>
     </div>
 
     <div style="background: #fff; border: 1px solid var(--canvas-border); border-radius: 8px; padding: 28px; box-shadow: var(--shadow-sm); margin-bottom: 24px;">
@@ -113,7 +118,10 @@
                 {/if}
               </div>
             </div>
-            <button class="btn btn-secondary btn-sm">Read Thread →</button>
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <button class="btn btn-secondary btn-sm">Read Thread →</button>
+              <CanvasLinkButtons url={disc.html_url} label="topic" />
+            </div>
           </div>
         {/each}
       {/if}
