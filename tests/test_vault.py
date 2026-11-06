@@ -82,3 +82,16 @@ def test_vault_course_and_pages_storage(tmp_path: Path) -> None:
     archived = vault.list_archived_courses(site_id)
     assert len(archived) == 1
     assert archived[0].course_id == course_id
+
+    # Verify backup size
+    size = vault.get_course_backup_size(site_id, course_id)
+    assert size > 0
+
+    # Delete local backup
+    deleted = vault.delete_course_archive(site_id, course_id)
+    assert deleted is True
+    assert vault.get_course_meta(site_id, course_id) is None
+    assert len(vault.list_archived_courses(site_id)) == 0
+
+    # Second delete returns False (not found)
+    assert vault.delete_course_archive(site_id, course_id) is False

@@ -239,6 +239,17 @@ class SyncJobManager:
         job._task = asyncio.create_task(_run())
         return job
 
+    def remove_job(self, site_id: str, course_id: int) -> bool:
+        """Remove a cached or completed sync job for a course."""
+        key = self._job_key(site_id, course_id)
+        if key in self._jobs:
+            job = self._jobs[key]
+            if job.status.status == "running" and job._task and not job._task.done():
+                job._task.cancel()
+            del self._jobs[key]
+            return True
+        return False
+
 
 # Global singleton instance for the app
 sync_manager = SyncJobManager()

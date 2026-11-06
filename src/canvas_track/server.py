@@ -104,8 +104,10 @@ def create_app(vault_dir: Path | str | None = None) -> FastAPI:
         }
 
     @app.delete("/api/sites/{site_id}")
-    def delete_site(site_id: str) -> dict[str, bool]:
-        vault.delete_site(site_id)
+    def delete_site(
+        site_id: str, delete_files: bool = Query(default=False)
+    ) -> dict[str, bool]:
+        vault.delete_site(site_id, delete_files=delete_files)
         return {"success": True}
 
     # 2. Canvas Remote Courses
@@ -236,6 +238,29 @@ def create_app(vault_dir: Path | str | None = None) -> FastAPI:
             "meta": meta.model_dump(),
             "course": raw_course,
             "syllabus_rewritten": syllabus,
+        }
+
+    @app.delete("/api/vault/courses/{site_id}/{course_id}")
+    def delete_vault_course(site_id: str, course_id: int) -> dict[str, Any]:
+        job = sync_manager.get_job(site_id, course_id)
+        if job and job.status.status == "running":
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot delete local backup while synchronization is in progress.",
+            )
+
+        size_bytes = vault.get_course_backup_size(site_id, course_id)
+        deleted = vault.delete_course_archive(site_id, course_id)
+        sync_manager.remove_job(site_id, course_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Course archive not found in vault.")
+
+        return {
+            "success": True,
+            "site_id": site_id,
+            "course_id": course_id,
+            "freed_bytes": size_bytes,
+            "message": "Local course backup deleted successfully.",
         }
 
     # Pages & Front Page

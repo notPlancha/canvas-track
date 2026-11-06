@@ -6,11 +6,14 @@ structure, with atomic JSON writes and SHA-256 hash tracking.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import logging
 import os
 import re
+import shutil
+import stat
 from pathlib import Path
 from typing import Any
 
@@ -88,31 +91,35 @@ class VaultManager:
         config["sites"] = existing
         self._save_raw_json(self.config_file, config)
 
-    def delete_site(self, site_id: str) -> None:
+    def delete_site(self, site_id: str, delete_files: bool = False) -> None:
         config = self._read_raw_json(self.config_file) or {"sites": []}
         config["sites"] = [s for s in config.get("sites", []) if s.get("id") != site_id]
         self._save_raw_json(self.config_file, config)
 
+        if delete_files:
+            site_dir = self.root / "sites" / sanitize_filename(site_id)
+            if site_dir.exists():
+                def _on_rm_error(func: Any, path: str, exc_info: Any) -> None:
+                    try:
+                        os.chmod(path, stat.S_IWRITE)
+                        func(path)
+                    except Exception as e:
+                        logger.error("Failed to remove path %s: %s", path, e)
+
+                shutil.rmtree(site_dir, onexc=_on_rm_error)
+
     # Course paths
     def get_site_dir(self, site_id: str) -> Path:
-        p = self.root / "sites" / sanitize_filename(site_id)
-        p.mkdir(parents=True, exist_ok=True)
-        return p
+        return self.root / "sites" / sanitize_filename(site_id)
 
     def get_course_dir(self, site_id: str, course_id: int) -> Path:
-        p = self.get_site_dir(site_id) / "courses" / str(course_id)
-        p.mkdir(parents=True, exist_ok=True)
-        return p
+        return self.get_site_dir(site_id) / "courses" / str(course_id)
 
     def get_api_raw_dir(self, site_id: str, course_id: int) -> Path:
-        p = self.get_course_dir(site_id, course_id) / "api_raw"
-        p.mkdir(parents=True, exist_ok=True)
-        return p
+        return self.get_course_dir(site_id, course_id) / "api_raw"
 
     def get_files_dir(self, site_id: str, course_id: int) -> Path:
-        p = self.get_course_dir(site_id, course_id) / "files"
-        p.mkdir(parents=True, exist_ok=True)
-        return p
+        return self.get_course_dir(site_id, course_id) / "files"
 
     # Course Metadata & Dumps
     def save_course_meta(self, site_id: str, course_id: int, meta: CourseMeta) -> None:
@@ -135,6 +142,35 @@ class VaultManager:
                 if meta:
                     courses.append(meta)
         return courses
+
+    def get_course_backup_size(self, site_id: str, course_id: int) -> int:
+        """Calculate total disk usage in bytes for a course's local vault archive."""
+        course_dir = self.root / "sites" / sanitize_filename(site_id) / "courses" / str(course_id)
+        if not course_dir.exists():
+            return 0
+        total_size = 0
+        for p in course_dir.rglob("*"):
+            if p.is_file():
+                with contextlib.suppress(OSError):
+                    total_size += p.stat().st_size
+        return total_size
+
+    def delete_course_archive(self, site_id: str, course_id: int) -> bool:
+        """Permanently delete a course's local vault directory."""
+        course_dir = self.root / "sites" / sanitize_filename(site_id) / "courses" / str(course_id)
+        if not course_dir.exists():
+            return False
+
+        def _on_rm_error(func: Any, path: str, exc_info: Any) -> None:
+            try:
+                os.chmod(path, stat.S_IWRITE)
+                func(path)
+            except Exception as e:
+                logger.error("Failed to remove path %s during deletion: %s", path, e)
+
+        shutil.rmtree(course_dir, onexc=_on_rm_error)
+        logger.info("Deleted local vault backup for course %s in site %s", course_id, site_id)
+        return True
 
     # Pages
     def save_pages_list(self, site_id: str, course_id: int, pages: list[dict[str, Any]]) -> None:

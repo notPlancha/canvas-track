@@ -173,3 +173,38 @@ def sync(
         )
 
     asyncio.run(_sync())
+
+
+@app.command()
+def delete_backup(
+    site_id: Annotated[str, typer.Argument(help="Registered site ID")],
+    course_id: Annotated[int, typer.Argument(help="Canvas course ID")],
+    yes: Annotated[bool, typer.Option("--yes", "-y", help="Skip confirmation prompt")] = False,
+    vault_dir: Annotated[Path | None, typer.Option("--vault-dir", "-v")] = None,
+) -> None:
+    """Permanently delete a course's local offline backup from the vault."""
+    vault = VaultManager(vault_dir)
+    meta = vault.get_course_meta(site_id, course_id)
+    name = meta.course_name if meta else f"Course {course_id}"
+    size_bytes = vault.get_course_backup_size(site_id, course_id)
+    size_mb = size_bytes / (1024 * 1024)
+
+    if not yes:
+        confirm = typer.confirm(
+            f"Are you sure you want to delete the local backup for '{name}' ({size_mb:.1f} MB)?"
+        )
+        if not confirm:
+            console.print("[yellow]Deletion cancelled.[/yellow]")
+            return
+
+    deleted = vault.delete_course_archive(site_id, course_id)
+    if deleted:
+        console.print(
+            f"[bold green]Deleted local backup for '[cyan]{name}[/cyan]' "
+            f"({size_mb:.1f} MB freed).[/bold green]"
+        )
+    else:
+        console.print(
+            f"[yellow]No local backup found for course {course_id} under site '{site_id}'.[/yellow]"
+        )
+
