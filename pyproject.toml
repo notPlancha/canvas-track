@@ -41,3 +41,8 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 [tool.ty.environment]
 python-version = "3.12"
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+norecursedirs = [".venv", "node_modules", "frontend", ".git"]
+
+

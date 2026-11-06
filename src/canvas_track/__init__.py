@@ -1,2 +1,10 @@
+"""Canvas Track: Offline sync engine and reader for Canvas LMS courses."""
+
+from canvas_track.cli import app
+
+
 def main() -> None:
-    print("Hello from canvas-track!")
+    app()
+
+
+__all__ = ["app", "main"]
