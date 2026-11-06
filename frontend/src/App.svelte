@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte';
-  import { getSites, getRemoteCourses, getVaultCourses, getSyncJobs } from './lib/api.js';
+  import { getSites, getRemoteCourses, getVaultCourses, getSyncJobs, deleteVaultCourse } from './lib/api.js';
 
   import SiteModal from './lib/SiteModal.svelte';
   import SyncModal from './lib/SyncModal.svelte';
@@ -17,6 +17,10 @@
   let syncJobs = $state({});
   let toasts = $state([]);
   let pollTimer = null;
+
+  // Deletion modal
+  let deleteModalCourse = $state(null);
+  let isDeleting = $state(false);
 
   // Current route
   let selectedCourseId = $state(null);
@@ -137,6 +141,28 @@
   function openCourse(courseId) {
     selectedCourseId = courseId;
   }
+
+  function confirmDeleteBackup(course) {
+    deleteModalCourse = course;
+  }
+
+  async function executeDeleteBackup() {
+    if (!deleteModalCourse) return;
+    isDeleting = true;
+    try {
+      await deleteVaultCourse(activeSiteId, deleteModalCourse.id);
+      addToast(`🗑️ Deleted local backup for "${deleteModalCourse.name}"`, 'info');
+      if (selectedCourseId === deleteModalCourse.id) {
+        selectedCourseId = null;
+      }
+      deleteModalCourse = null;
+      await loadCourses(activeSiteId);
+    } catch (e) {
+      addToast(`Failed to delete backup: ${e.message}`, 'error');
+    } finally {
+      isDeleting = false;
+    }
+  }
 </script>
 
 <div class="app-container">
@@ -188,6 +214,9 @@
         onTriggerSync={(cId) => {
           const c = courses.find((x) => x.id === cId);
           triggerSync(cId, c ? c.name : '');
+        }}
+        onDeleteCourse={(cId, cName) => {
+          confirmDeleteBackup({ id: cId, name: cName });
         }}
       />
     {:else}
@@ -352,13 +381,22 @@
                       {/if}
 
                       {#if course.is_synced}
-                        <button
-                          class="btn btn-secondary btn-sm"
-                          onclick={() => triggerSync(course.id, course.name)}
-                          title="Re-sync updates"
-                        >
-                          ↻ Sync
-                        </button>
+                        <div style="display: flex; gap: 6px;">
+                          <button
+                            class="btn btn-secondary btn-sm"
+                            onclick={() => triggerSync(course.id, course.name)}
+                            title="Re-sync updates"
+                          >
+                            ↻ Sync
+                          </button>
+                          <button
+                            class="btn btn-secondary btn-sm btn-icon-danger"
+                            onclick={() => confirmDeleteBackup(course)}
+                            title="Delete local backup"
+                          >
+                            🗑️
+                          </button>
+                        </div>
                       {/if}
                     </div>
                   {/if}
@@ -394,6 +432,49 @@
     loadCourses(activeSiteId);
   }}
 />
+
+<!-- Delete Confirmation Modal -->
+{#if deleteModalCourse}
+  <div
+    class="modal-backdrop"
+    onclick={() => (deleteModalCourse = null)}
+    onkeydown={(e) => e.key === 'Escape' && (deleteModalCourse = null)}
+    role="dialog"
+    aria-modal="true"
+    tabindex="-1"
+  >
+    <div class="modal-dialog" onclick={(e) => e.stopPropagation()} role="document" style="max-width: 480px;">
+      <div class="modal-header">
+        <h2 style="color: #C53030;">Delete Local Backup?</h2>
+        <button class="btn btn-secondary btn-sm" onclick={() => (deleteModalCourse = null)}>✕</button>
+      </div>
+
+      <div class="modal-body">
+        <p style="font-size: 14px; color: var(--canvas-navy); margin-bottom: 12px;">
+          Are you sure you want to permanently delete the offline vault backup for <strong>{deleteModalCourse.name}</strong>?
+        </p>
+
+        <div style="background: #FFF5F5; border: 1px solid #FEB2B2; border-radius: 6px; padding: 12px; font-size: 13px; color: #9B2C2C; margin-bottom: 16px;">
+          ⚠️ <strong>What happens:</strong>
+          <ul style="margin: 6px 0 0 18px; line-height: 1.5;">
+            <li>All downloaded files, HTML pages, modules, and JSON data will be deleted from your disk.</li>
+            <li>Your online Canvas account is <strong>completely unaffected</strong>.</li>
+            <li>You can re-sync this course anytime from Canvas.</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 10px;">
+        <button type="button" class="btn btn-secondary" onclick={() => (deleteModalCourse = null)} disabled={isDeleting}>
+          Cancel
+        </button>
+        <button type="button" class="btn btn-danger" onclick={executeDeleteBackup} disabled={isDeleting}>
+          {isDeleting ? 'Deleting...' : 'Delete Backup'}
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
 
 <!-- Toast Notifications -->
 <div class="toast-container">

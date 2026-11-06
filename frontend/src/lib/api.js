@@ -53,6 +53,12 @@ export async function getVaultCourse(siteId, courseId) {
   return fetchJson(`/api/vault/courses/${encodeURIComponent(siteId)}/${courseId}`);
 }
 
+export async function deleteVaultCourse(siteId, courseId) {
+  return fetchJson(`/api/vault/courses/${encodeURIComponent(siteId)}/${courseId}`, {
+    method: 'DELETE',
+  });
+}
+
 export async function getVaultFrontPage(siteId, courseId) {
   return fetchJson(`/api/vault/courses/${encodeURIComponent(siteId)}/${courseId}/front_page`);
 }
