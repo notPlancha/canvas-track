@@ -268,7 +268,7 @@ def create_app(vault_dir: Path | str | None = None) -> FastAPI:
     def get_vault_front_page(site_id: str, course_id: int) -> dict[str, Any]:
         fp = vault.get_front_page(site_id, course_id)
         if not fp:
-            raise HTTPException(status_code=404, detail="Front page not found.")
+            return {"url": None, "title": None, "body": None, "body_rewritten": None}
 
         rewriter = CanvasLinkRewriter(site_id, course_id)
         body = rewriter.rewrite_html(fp.get("body"))

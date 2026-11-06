@@ -219,7 +219,7 @@
     <div class="course-main">
       {#if activeTab === 'home'}
         <!-- Home View: Prioritize Wiki Front Page if default_view is wiki or frontPage exists -->
-        {#if frontPage}
+        {#if frontPage && frontPage.url}
           <PageView
             page={frontPage}
             isFrontPage={true}
