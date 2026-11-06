@@ -229,7 +229,14 @@ class CanvasClient:
             return CanvasFile.model_validate(data)
         except httpx.HTTPStatusError as e:
             if e.response.status_code in (404, 403):
-                return None
+                # Fallback to global files endpoint if course files endpoint is forbidden
+                try:
+                    data = await self.get_json(f"files/{file_id}")
+                    return CanvasFile.model_validate(data)
+                except httpx.HTTPStatusError as e2:
+                    if e2.response.status_code in (404, 403):
+                        return None
+                    raise
             raise
 
     async def list_course_modules(self, course_id: int) -> list[CanvasModule]:
