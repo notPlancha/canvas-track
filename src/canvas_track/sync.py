@@ -8,6 +8,7 @@ downloads, and real-time progress updates.
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Callable, Coroutine
 from datetime import datetime
 from typing import Any
@@ -169,6 +170,40 @@ class SyncEngine:
                         logger.warning(
                             "Could not fetch metadata for module file %s: %s",
                             it.content_id,
+                            e,
+                        )
+
+        # Harvest files referenced in page bodies, front page, and syllabus
+        html_sources: list[str] = []
+        if course.syllabus_body:
+            html_sources.append(course.syllabus_body)
+        if front_page and front_page.body:
+            html_sources.append(front_page.body)
+        for p in pages_summary:
+            saved_p = self.vault.get_page(self.site_id, course_id, p.url)
+            if saved_p and saved_p.get("body"):
+                html_sources.append(saved_p["body"])
+
+        file_ref_regex = re.compile(
+            r"(?:/files/|preview=|\$CANVAS_OBJECT_REFERENCE\$/files/)(\d+)",
+            re.IGNORECASE,
+        )
+        for html_text in html_sources:
+            for fid_match in file_ref_regex.finditer(html_text):
+                try:
+                    ref_fid = int(fid_match.group(1))
+                except (ValueError, IndexError):
+                    continue
+                if ref_fid not in known_file_ids:
+                    try:
+                        f_meta = await self.client.get_file(course_id, ref_fid)
+                        if f_meta:
+                            files.append(f_meta)
+                            known_file_ids.add(f_meta.id)
+                    except Exception as e:
+                        logger.warning(
+                            "Could not fetch metadata for referenced file %d: %s",
+                            ref_fid,
                             e,
                         )
 
