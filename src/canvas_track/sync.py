@@ -21,6 +21,17 @@ logger = logging.getLogger(__name__)
 ProgressCallback = Callable[[dict[str, Any]], Coroutine[Any, Any, None] | None]
 
 
+def format_bytes(size: int) -> str:
+    """Format bytes count into human-readable representation."""
+    if size < 1024:
+        return f"{size} B"
+    if size < 1024 * 1024:
+        return f"{size / 1024:.1f} KB"
+    if size < 1024 * 1024 * 1024:
+        return f"{size / (1024 * 1024):.1f} MB"
+    return f"{size / (1024 * 1024 * 1024):.1f} GB"
+
+
 class SyncEngine:
     """Manages course synchronization from Canvas to local vault storage."""
 
@@ -123,10 +134,28 @@ class SyncEngine:
                 dest_folder = course_files_dir / folder_rel if folder_rel else course_files_dir
                 dest_file = dest_folder / sanitize_filename(file_item.display_name)
                 rel_key = str(file_item.id)
+                size_str = f" ({format_bytes(file_item.size)})" if file_item.size else ""
+
+                # Check if already present and matches expected size
+                if (
+                    dest_file.exists()
+                    and file_item.size
+                    and dest_file.stat().st_size == file_item.size
+                ):
+                    msg = (
+                        f"File already up to date ({idx}/{total_files}): "
+                        f"{file_item.display_name}{size_str}"
+                    )
+                    await emit("download", msg, current=idx, total=total_files)
+                    if rel_key in prev_hashes:
+                        file_hashes[rel_key] = prev_hashes[rel_key]
+                    else:
+                        file_hashes[rel_key] = compute_sha256(dest_file)
+                    continue
 
                 await emit(
                     "download",
-                    f"Downloading file ({idx}/{total_files}): {file_item.display_name}",
+                    f"Downloading file ({idx}/{total_files}): {file_item.display_name}{size_str}",
                     current=idx,
                     total=total_files,
                 )

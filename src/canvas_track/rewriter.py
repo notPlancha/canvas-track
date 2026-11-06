@@ -50,7 +50,7 @@ class CanvasLinkRewriter:
 
         # 2. Rewrite Canvas page links: /courses/:course_id/pages/:page_url
         page_pattern = re.compile(
-            rf'(?:https?://{re.escape(self.base_domain)})?'
+            rf"(?:https?://{re.escape(self.base_domain)})?"
             rf'/courses/{self.course_id}/pages/([a-zA-Z0-9_\-\.\%]+)(?:[?#][^\'"]*)?',
             re.IGNORECASE,
         )
@@ -60,7 +60,7 @@ class CanvasLinkRewriter:
 
         # 3. Rewrite Canvas assignment links: /courses/:course_id/assignments/:assignment_id
         assignment_pattern = re.compile(
-            rf'(?:https?://{re.escape(self.base_domain)})?'
+            rf"(?:https?://{re.escape(self.base_domain)})?"
             rf'/courses/{self.course_id}/assignments/(\d+)(?:[?#][^\'"]*)?',
             re.IGNORECASE,
         )
@@ -70,7 +70,7 @@ class CanvasLinkRewriter:
 
         # 4. Rewrite Canvas discussion links: /courses/:course_id/discussion_topics/:topic_id
         disc_pattern = re.compile(
-            rf'(?:https?://{re.escape(self.base_domain)})?'
+            rf"(?:https?://{re.escape(self.base_domain)})?"
             rf'/courses/{self.course_id}/discussion_topics/(\d+)(?:[?#][^\'"]*)?',
             re.IGNORECASE,
         )
@@ -80,7 +80,7 @@ class CanvasLinkRewriter:
 
         # 5. Rewrite Canvas modules links: /courses/:course_id/modules
         module_pattern = re.compile(
-            rf'(?:https?://{re.escape(self.base_domain)})?'
+            rf"(?:https?://{re.escape(self.base_domain)})?"
             rf'/courses/{self.course_id}/modules(?:[?#][^\'"]*)?',
             re.IGNORECASE,
         )
@@ -90,7 +90,7 @@ class CanvasLinkRewriter:
 
         # 6. Rewrite file downloads and preview links: /courses/:course_id/files/:file_id
         file_pattern = re.compile(
-            rf'(?:https?://{re.escape(self.base_domain)})?'
+            rf"(?:https?://{re.escape(self.base_domain)})?"
             rf'/courses/{self.course_id}/files/(\d+)(?:/(?:download|preview))?(?:[?#][^\'"]*)?',
             re.IGNORECASE,
         )
@@ -103,7 +103,7 @@ class CanvasLinkRewriter:
 
         # Also handle global file download links like /files/:file_id/download
         global_file_pattern = re.compile(
-            rf'(?:https?://{re.escape(self.base_domain)})?'
+            rf"(?:https?://{re.escape(self.base_domain)})?"
             rf'/files/(\d+)(?:/(?:download|preview))?(?:[?#][^\'"]*)?',
             re.IGNORECASE,
         )
