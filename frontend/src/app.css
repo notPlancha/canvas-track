@@ -195,6 +195,33 @@ button {
   border-color: #9AA5B1;
 }
 
+.btn-danger {
+  background-color: #E53E3E;
+  color: #fff;
+}
+.btn-danger:hover {
+  background-color: #C53030;
+}
+
+.btn-danger-outline {
+  background-color: #fff;
+  border: 1px solid #FEB2B2;
+  color: #E53E3E;
+}
+.btn-danger-outline:hover {
+  background-color: #FFF5F5;
+  border-color: #E53E3E;
+}
+
+.btn-icon-danger {
+  color: #E53E3E;
+  border-color: #FEB2B2;
+}
+.btn-icon-danger:hover {
+  background-color: #FFF5F5;
+  border-color: #E53E3E;
+}
+
 .btn-sm {
   padding: 5px 10px;
   font-size: 13px;

@@ -19,7 +19,7 @@
   import DiscussionsView from './DiscussionsView.svelte';
   import AnnouncementsView from './AnnouncementsView.svelte';
 
-  let { siteId = '', courseId = 0, onBack, onTriggerSync } = $props();
+  let { siteId = '', courseId = 0, onBack, onTriggerSync, onDeleteCourse } = $props();
 
   let activeTab = $state('home'); // home, pages, modules, assignments, discussions, announcements, syllabus
   let courseData = $state(null);
@@ -141,6 +141,15 @@
       <button class="btn btn-secondary btn-sm" onclick={() => onTriggerSync(courseId)}>
         ↻ Re-sync Course
       </button>
+      {#if onDeleteCourse}
+        <button
+          class="btn btn-danger-outline btn-sm"
+          onclick={() => onDeleteCourse(courseId, courseData.meta.course_name)}
+          title="Delete this local offline backup"
+        >
+          🗑️ Delete Backup
+        </button>
+      {/if}
     </div>
   </div>
 
