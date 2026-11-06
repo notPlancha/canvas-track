@@ -36,22 +36,37 @@ class CanvasLinkRewriter:
             r'href=[\'"]\$CANVAS_OBJECT_REFERENCE\$/pages/([^\'"?#]+)[\'"]',
             rf'href="#/site/{self.site_id}/course/{self.course_id}/pages/\1"',
             content,
+            flags=re.IGNORECASE,
         )
         content = re.sub(
             r'href=[\'"]\$CANVAS_OBJECT_REFERENCE\$/assignments/(\d+)[\'"]',
             rf'href="#/site/{self.site_id}/course/{self.course_id}/assignments/\1"',
             content,
+            flags=re.IGNORECASE,
         )
         content = re.sub(
             r'href=[\'"]\$CANVAS_OBJECT_REFERENCE\$/modules[\'"]',
             rf'href="#/site/{self.site_id}/course/{self.course_id}/modules"',
             content,
+            flags=re.IGNORECASE,
+        )
+        content = re.sub(
+            r'(?:href|src)=[\'"]\$CANVAS_OBJECT_REFERENCE\$/files/(\d+)(?:[?#][^\'"\s]*)?[\'"]',
+            rf'href="/api/vault/files/{self.site_id}/{self.course_id}/\1"',
+            content,
+            flags=re.IGNORECASE,
+        )
+
+        # Domain matcher: matches self.base_domain if set, or any domain prefix
+        domain_prefix = (
+            rf"(?:https?://(?:{re.escape(self.base_domain)}|[^/'\"\s]+))?"
+            if self.base_domain
+            else r"(?:https?://[^/'\"\s]+)?"
         )
 
         # 2. Rewrite Canvas page links: /courses/:course_id/pages/:page_url
         page_pattern = re.compile(
-            rf"(?:https?://{re.escape(self.base_domain)})?"
-            rf'/courses/{self.course_id}/pages/([a-zA-Z0-9_\-\.\%]+)(?:[?#][^\'"]*)?',
+            rf"{domain_prefix}/courses/{self.course_id}/pages/([a-zA-Z0-9_\-\.\%]+)(?:[?#][^'\"\s]*)?",
             re.IGNORECASE,
         )
         content = page_pattern.sub(
@@ -60,8 +75,7 @@ class CanvasLinkRewriter:
 
         # 3. Rewrite Canvas assignment links: /courses/:course_id/assignments/:assignment_id
         assignment_pattern = re.compile(
-            rf"(?:https?://{re.escape(self.base_domain)})?"
-            rf'/courses/{self.course_id}/assignments/(\d+)(?:[?#][^\'"]*)?',
+            rf"{domain_prefix}/courses/{self.course_id}/assignments/(\d+)(?:[?#][^'\"\s]*)?",
             re.IGNORECASE,
         )
         content = assignment_pattern.sub(
@@ -70,8 +84,7 @@ class CanvasLinkRewriter:
 
         # 4. Rewrite Canvas discussion links: /courses/:course_id/discussion_topics/:topic_id
         disc_pattern = re.compile(
-            rf"(?:https?://{re.escape(self.base_domain)})?"
-            rf'/courses/{self.course_id}/discussion_topics/(\d+)(?:[?#][^\'"]*)?',
+            rf"{domain_prefix}/courses/{self.course_id}/discussion_topics/(\d+)(?:[?#][^'\"\s]*)?",
             re.IGNORECASE,
         )
         content = disc_pattern.sub(
@@ -80,18 +93,18 @@ class CanvasLinkRewriter:
 
         # 5. Rewrite Canvas modules links: /courses/:course_id/modules
         module_pattern = re.compile(
-            rf"(?:https?://{re.escape(self.base_domain)})?"
-            rf'/courses/{self.course_id}/modules(?:[?#][^\'"]*)?',
+            rf"{domain_prefix}/courses/{self.course_id}/modules(?:[?#][^'\"\s]*)?",
             re.IGNORECASE,
         )
         content = module_pattern.sub(
             rf"#/site/{self.site_id}/course/{self.course_id}/modules", content
         )
 
-        # 6. Rewrite file downloads and preview links: /courses/:course_id/files/:file_id
-        file_pattern = re.compile(
-            rf"(?:https?://{re.escape(self.base_domain)})?"
-            rf'/courses/{self.course_id}/files/(\d+)(?:/(?:download|preview))?(?:[?#][^\'"]*)?',
+        # 6. Rewrite folder preview file links:
+        # /courses/:course_id/files/folder/<path>?preview=:file_id
+        folder_preview_pattern = re.compile(
+            rf"{domain_prefix}/courses/(?:{self.course_id}|\d+)/files/folder/[^?#'\"\s]*\?"
+            r"(?:[^#'\"\s]*&)?preview=(\d+)(?:[#][^'\"\s]*)?",
             re.IGNORECASE,
         )
 
@@ -99,12 +112,18 @@ class CanvasLinkRewriter:
             fid = int(match.group(1))
             return f"/api/vault/files/{self.site_id}/{self.course_id}/{fid}"
 
+        content = folder_preview_pattern.sub(replace_file, content)
+
+        # 7. Rewrite file downloads and preview links: /courses/:course_id/files/:file_id
+        file_pattern = re.compile(
+            rf"{domain_prefix}/courses/{self.course_id}/files/(\d+)(?:/(?:download|preview))?(?:[?#][^'\"\s]*)?",
+            re.IGNORECASE,
+        )
         content = file_pattern.sub(replace_file, content)
 
-        # Also handle global file download links like /files/:file_id/download
+        # 8. Also handle user and global file links: /users/:user_id/files/:file_id, /files/:file_id
         global_file_pattern = re.compile(
-            rf"(?:https?://{re.escape(self.base_domain)})?"
-            rf'/files/(\d+)(?:/(?:download|preview))?(?:[?#][^\'"]*)?',
+            rf"{domain_prefix}(?:/users/\d+)?/files/(\d+)(?:/(?:download|preview))?(?:[?#][^'\"\s]*)?",
             re.IGNORECASE,
         )
         content = global_file_pattern.sub(replace_file, content)

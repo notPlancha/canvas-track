@@ -104,9 +104,7 @@ def create_app(vault_dir: Path | str | None = None) -> FastAPI:
         }
 
     @app.delete("/api/sites/{site_id}")
-    def delete_site(
-        site_id: str, delete_files: bool = Query(default=False)
-    ) -> dict[str, bool]:
+    def delete_site(site_id: str, delete_files: bool = Query(default=False)) -> dict[str, bool]:
         vault.delete_site(site_id, delete_files=delete_files)
         return {"success": True}
 
@@ -213,6 +211,11 @@ def create_app(vault_dir: Path | str | None = None) -> FastAPI:
 
         return StreamingResponse(event_generator(), media_type="text/event-stream")
 
+    def get_rewriter(site_id: str, course_id: int) -> CanvasLinkRewriter:
+        site = vault.get_site(site_id)
+        domain = site.domain if site else None
+        return CanvasLinkRewriter(site_id, course_id, base_domain=domain)
+
     # 4. Offline Vault Browsing APIs
     @app.get("/api/vault/sites/{site_id}/courses")
     def list_vault_courses(site_id: str) -> list[dict[str, Any]]:
@@ -231,7 +234,7 @@ def create_app(vault_dir: Path | str | None = None) -> FastAPI:
         # Rewrite syllabus if present
         syllabus = raw_course.get("syllabus_body")
         if syllabus:
-            rewriter = CanvasLinkRewriter(site_id, course_id)
+            rewriter = get_rewriter(site_id, course_id)
             syllabus = rewriter.rewrite_html(syllabus)
 
         return {
@@ -270,7 +273,7 @@ def create_app(vault_dir: Path | str | None = None) -> FastAPI:
         if not fp:
             return {"url": None, "title": None, "body": None, "body_rewritten": None}
 
-        rewriter = CanvasLinkRewriter(site_id, course_id)
+        rewriter = get_rewriter(site_id, course_id)
         body = rewriter.rewrite_html(fp.get("body"))
         return {**fp, "body_rewritten": body}
 
@@ -284,7 +287,7 @@ def create_app(vault_dir: Path | str | None = None) -> FastAPI:
         if not page:
             raise HTTPException(status_code=404, detail=f"Page '{page_url}' not found.")
 
-        rewriter = CanvasLinkRewriter(site_id, course_id)
+        rewriter = get_rewriter(site_id, course_id)
         body = rewriter.rewrite_html(page.get("body"))
         return {**page, "body_rewritten": body}
 
@@ -297,7 +300,7 @@ def create_app(vault_dir: Path | str | None = None) -> FastAPI:
     @app.get("/api/vault/courses/{site_id}/{course_id}/assignments")
     def list_vault_assignments(site_id: str, course_id: int) -> list[dict[str, Any]]:
         assignments = vault.get_assignments(site_id, course_id)
-        rewriter = CanvasLinkRewriter(site_id, course_id)
+        rewriter = get_rewriter(site_id, course_id)
         for a in assignments:
             if a.get("description"):
                 a["description_rewritten"] = rewriter.rewrite_html(a["description"])
@@ -311,7 +314,7 @@ def create_app(vault_dir: Path | str | None = None) -> FastAPI:
     @app.get("/api/vault/courses/{site_id}/{course_id}/announcements")
     def list_vault_announcements(site_id: str, course_id: int) -> list[dict[str, Any]]:
         announcements = vault.get_announcements(site_id, course_id)
-        rewriter = CanvasLinkRewriter(site_id, course_id)
+        rewriter = get_rewriter(site_id, course_id)
         for ann in announcements:
             if ann.get("message"):
                 ann["message_rewritten"] = rewriter.rewrite_html(ann["message"])
@@ -320,7 +323,7 @@ def create_app(vault_dir: Path | str | None = None) -> FastAPI:
     @app.get("/api/vault/courses/{site_id}/{course_id}/discussions")
     def list_vault_discussions(site_id: str, course_id: int) -> list[dict[str, Any]]:
         topics = vault.get_discussions(site_id, course_id)
-        rewriter = CanvasLinkRewriter(site_id, course_id)
+        rewriter = get_rewriter(site_id, course_id)
         for top in topics:
             if top.get("message"):
                 top["message_rewritten"] = rewriter.rewrite_html(top["message"])
