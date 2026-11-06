@@ -99,6 +99,7 @@ class VaultManager:
         if delete_files:
             site_dir = self.root / "sites" / sanitize_filename(site_id)
             if site_dir.exists():
+
                 def _on_rm_error(func: Any, path: str, exc_info: Any) -> None:
                     try:
                         os.chmod(path, stat.S_IWRITE)
@@ -233,6 +234,61 @@ class VaultManager:
     def get_folders_metadata(self, site_id: str, course_id: int) -> list[dict[str, Any]]:
         path = self.get_api_raw_dir(site_id, course_id) / "folders.json"
         return self._read_raw_json(path) or []
+
+    def get_course_file_path(
+        self, site_id: str, course_id: int, file_id: int
+    ) -> Path | None:
+        """Find the local path on disk for a given course file ID."""
+        files = self.get_files_metadata(site_id, course_id)
+        target = next(
+            (f for f in files if f.get("id") == file_id or str(f.get("id")) == str(file_id)),
+            None,
+        )
+        files_dir = self.get_files_dir(site_id, course_id)
+        if not files_dir.exists():
+            return None
+
+        if target:
+            display_name = target.get("display_name", "")
+            sanitized = sanitize_filename(display_name)
+            folder_id = target.get("folder_id")
+
+            # Try locating via folder mapping
+            if folder_id:
+                folders = self.get_folders_metadata(site_id, course_id)
+                folder_obj = next((f for f in folders if f.get("id") == folder_id), None)
+                if folder_obj and folder_obj.get("full_name"):
+                    name_parts = folder_obj["full_name"].split("/")
+                    if name_parts and name_parts[0].lower() in ("course files", "course_files"):
+                        rel_parts = [sanitize_filename(p) for p in name_parts[1:] if p.strip()]
+                    else:
+                        rel_parts = [sanitize_filename(p) for p in name_parts if p.strip()]
+                    folder_rel = Path(*rel_parts) if rel_parts else Path()
+                    candidate = files_dir / folder_rel / sanitized
+                    if candidate.is_file():
+                        return candidate
+
+            # Try direct file in root files dir
+            direct = files_dir / sanitized
+            if direct.is_file():
+                return direct
+
+            # Recursive search by display_name or filename
+            raw_filename = target.get("filename")
+            for p in files_dir.rglob("*"):
+                if p.is_file() and (
+                    p.name == sanitized
+                    or p.name == display_name
+                    or (raw_filename and p.name == raw_filename)
+                ):
+                    return p
+
+        # Fallback search by file_id in name
+        for p in files_dir.rglob("*"):
+            if p.is_file() and str(file_id) in p.name:
+                return p
+
+        return None
 
     # Assignments & Submissions
     def save_assignments(

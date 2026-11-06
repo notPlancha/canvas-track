@@ -9,6 +9,10 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import mimetypes
+import os
+import subprocess
+import sys
 from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import Any
@@ -336,33 +340,78 @@ def create_app(vault_dir: Path | str | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="Discussion thread not found.")
         return entry
 
-    # Files serving
+    # Files listing and serving
+    @app.get("/api/vault/courses/{site_id}/{course_id}/files")
+    def list_vault_files(site_id: str, course_id: int) -> list[dict[str, Any]]:
+        files = vault.get_files_metadata(site_id, course_id)
+        result: list[dict[str, Any]] = []
+        for f in files:
+            fid = f.get("id")
+            path = vault.get_course_file_path(site_id, course_id, fid) if fid else None
+            item = dict(f)
+            item["is_downloaded"] = path is not None and path.exists()
+            if path and path.exists():
+                item["local_path"] = str(path.resolve())
+                item["local_size"] = path.stat().st_size
+            result.append(item)
+        return result
+
     @app.get("/api/vault/files/{site_id}/{course_id}/{file_id}")
     def serve_vault_file(site_id: str, course_id: int, file_id: int) -> FileResponse:
-        files = vault.get_files_metadata(site_id, course_id)
-        target_file = next((f for f in files if f.get("id") == file_id), None)
-        if not target_file:
-            raise HTTPException(status_code=404, detail="File metadata not found.")
-
-        # Find file in vault course directory
-        course_files_dir = vault.get_files_dir(site_id, course_id)
-        filename = sanitize_filename(target_file.get("display_name", ""))
-
-        # Walk to find match
-        matched_path: Path | None = None
-        for p in course_files_dir.rglob("*"):
-            if p.is_file() and p.name == filename:
-                matched_path = p
-                break
-
-        if not matched_path or not matched_path.exists():
+        file_path = vault.get_course_file_path(site_id, course_id, file_id)
+        if not file_path or not file_path.exists():
             raise HTTPException(status_code=404, detail="File content not found on disk.")
 
-        return FileResponse(
-            matched_path,
-            filename=target_file.get("display_name"),
-            media_type=target_file.get("content_type") or "application/octet-stream",
+        files = vault.get_files_metadata(site_id, course_id)
+        target_file = next(
+            (f for f in files if f.get("id") == file_id or str(f.get("id")) == str(file_id)),
+            {},
         )
+
+        media_type = target_file.get("content_type")
+        if not media_type:
+            guessed_type, _ = mimetypes.guess_type(file_path.name)
+            media_type = guessed_type or "application/octet-stream"
+
+        return FileResponse(
+            file_path,
+            filename=target_file.get("display_name") or file_path.name,
+            media_type=media_type,
+            content_disposition_type="inline",
+        )
+
+    @app.post("/api/vault/files/{site_id}/{course_id}/{file_id}/open")
+    def open_vault_file_in_system(site_id: str, course_id: int, file_id: int) -> dict[str, Any]:
+        """Open the downloaded local course file using the operating system's default viewer."""
+        file_path = vault.get_course_file_path(site_id, course_id, file_id)
+        if not file_path or not file_path.exists():
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    f"File {file_id} not found in local vault. "
+                    "Ensure course files are downloaded."
+                ),
+            )
+
+        abs_path = str(file_path.resolve())
+        try:
+            if sys.platform == "win32":
+                os.startfile(abs_path)
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", abs_path])
+            else:
+                subprocess.Popen(["xdg-open", abs_path])
+        except Exception as e:
+            logger.exception("Failed to launch system viewer for %s", abs_path)
+            raise HTTPException(status_code=500, detail=f"Failed to open file: {e}") from e
+
+        return {
+            "success": True,
+            "file_id": file_id,
+            "filename": file_path.name,
+            "file_path": abs_path,
+            "message": f"Opened {file_path.name} in system viewer.",
+        }
 
     # 5. Serve Svelte Frontend Static Build
     static_dir = Path(__file__).parent / "static"
