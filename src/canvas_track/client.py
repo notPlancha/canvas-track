@@ -144,7 +144,19 @@ class CanvasClient:
 
         while next_url:
             current_params = query_params if is_first_page else None
-            resp = await self.get_raw(next_url, params=current_params)
+            try:
+                resp = await self.get_raw(next_url, params=current_params)
+            except httpx.HTTPStatusError as e:
+                # If an optional course feature is disabled, Canvas returns 404/403
+                if is_first_page and e.response.status_code in (404, 403):
+                    logger.debug(
+                        "Endpoint '%s' returned %d; returning empty list",
+                        endpoint,
+                        e.response.status_code,
+                    )
+                    return []
+                raise
+
             data = resp.json()
             if isinstance(data, list):
                 all_items.extend(data)
@@ -188,7 +200,7 @@ class CanvasClient:
             data = await self.get_json(f"courses/{course_id}/front_page")
             return CanvasPage.model_validate(data)
         except httpx.HTTPStatusError as e:
-            if e.response.status_code == 404:
+            if e.response.status_code in (404, 403):
                 return None
             raise
 
@@ -200,10 +212,25 @@ class CanvasClient:
             pages.append(CanvasPage.model_validate(p))
         return pages
 
-    async def get_course_page(self, course_id: int, page_url: str) -> CanvasPage:
+    async def get_course_page(self, course_id: int, page_url: str) -> CanvasPage | None:
         """Fetch full details and HTML body for a single course wiki page."""
-        data = await self.get_json(f"courses/{course_id}/pages/{page_url}")
-        return CanvasPage.model_validate(data)
+        try:
+            data = await self.get_json(f"courses/{course_id}/pages/{page_url}")
+            return CanvasPage.model_validate(data)
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code in (404, 403):
+                return None
+            raise
+
+    async def get_file(self, course_id: int, file_id: int) -> CanvasFile | None:
+        """Fetch metadata for an individual course file by ID."""
+        try:
+            data = await self.get_json(f"courses/{course_id}/files/{file_id}")
+            return CanvasFile.model_validate(data)
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code in (404, 403):
+                return None
+            raise
 
     async def list_course_modules(self, course_id: int) -> list[CanvasModule]:
         """Fetch all course modules and their nested module items."""
@@ -265,7 +292,12 @@ class CanvasClient:
 
     async def get_discussion_entries(self, course_id: int, topic_id: int) -> dict[str, Any]:
         """Fetch full discussion topic thread including all student replies."""
-        return await self.get_json(f"courses/{course_id}/discussion_topics/{topic_id}/view")
+        try:
+            return await self.get_json(f"courses/{course_id}/discussion_topics/{topic_id}/view")
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code in (404, 403):
+                return {}
+            raise
 
     async def download_file(
         self,
