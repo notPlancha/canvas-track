@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from canvas_track.models import CourseMeta, SiteConfig
@@ -107,3 +108,85 @@ def test_api_sites_and_vault(tmp_path: Path) -> None:
     # Second delete returns 404
     resp = client.delete("/api/vault/courses/ltu/29010")
     assert resp.status_code == 404
+
+
+def test_api_vault_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    vault = VaultManager(tmp_path)
+    site = SiteConfig(
+        id="ltu",
+        domain="canvas.ltu.se",
+        base_url="https://canvas.ltu.se",
+        user_name="Student Test",
+        user_id=12345,
+        token="mock_token",
+    )
+    vault.save_site(site)
+
+    # Save folders and files
+    vault.save_folders_metadata(
+        "ltu",
+        29010,
+        [{"id": 1, "full_name": "course files/Lectures"}],
+    )
+    vault.save_files_metadata(
+        "ltu",
+        29010,
+        [
+            {
+                "id": 999,
+                "display_name": "lecture.pdf",
+                "folder_id": 1,
+                "content_type": "application/pdf",
+                "size": 12,
+            }
+        ],
+    )
+
+    # Create dummy file on disk
+    files_dir = vault.get_files_dir("ltu", 29010)
+    pdf_path = files_dir / "Lectures" / "lecture.pdf"
+    pdf_path.parent.mkdir(parents=True, exist_ok=True)
+    pdf_path.write_text("dummy pdf", encoding="utf-8")
+
+    app = create_app(tmp_path)
+    client = TestClient(app)
+
+    # Test list files
+    resp = client.get("/api/vault/courses/ltu/29010/files")
+    assert resp.status_code == 200
+    files_list = resp.json()
+    assert len(files_list) == 1
+    assert files_list[0]["id"] == 999
+    assert files_list[0]["is_downloaded"] is True
+
+    # Test serve file
+    resp = client.get("/api/vault/files/ltu/29010/999")
+    assert resp.status_code == 200
+    assert resp.content == b"dummy pdf"
+    assert resp.headers.get("content-type") == "application/pdf"
+
+    # Test open file with system viewer
+    opened_paths: list[str] = []
+    import os
+
+    if hasattr(os, "startfile"):
+        monkeypatch.setattr(os, "startfile", lambda p: opened_paths.append(str(p)))
+    else:
+        import subprocess
+
+        monkeypatch.setattr(
+            subprocess,
+            "Popen",
+            lambda cmd: opened_paths.append(cmd[1]),
+        )
+
+    resp = client.post("/api/vault/files/ltu/29010/999/open")
+    assert resp.status_code == 200
+    assert resp.json()["success"] is True
+    assert len(opened_paths) == 1
+    assert "lecture.pdf" in opened_paths[0]
+
+    # Test open non-existent file
+    resp = client.post("/api/vault/files/ltu/29010/99999/open")
+    assert resp.status_code == 404
+
