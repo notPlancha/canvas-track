@@ -32,17 +32,28 @@ export async function getSites() {
   return fetchJson('/api/sites');
 }
 
-export async function addSite(domain, token, siteId = null) {
+export async function addSite(domain, token, siteId = null, platform = 'canvas') {
   return fetchJson('/api/sites', {
     method: 'POST',
-    body: JSON.stringify({ domain, token, site_id: siteId }),
+    body: JSON.stringify({ domain, token, site_id: siteId, platform }),
   });
 }
 
-export async function updateSite(siteId, domain, token, newSiteId = null) {
+export async function updateSite(siteId, domain, token, newSiteId = null, platform = 'canvas') {
   return fetchJson(`/api/sites/${encodeURIComponent(siteId)}`, {
     method: 'PUT',
-    body: JSON.stringify({ domain, token, site_id: newSiteId }),
+    body: JSON.stringify({ domain, token, site_id: newSiteId, platform }),
+  });
+}
+
+export async function getMoodleSsoUrl(domain) {
+  return fetchJson(`/api/auth/moodle-sso-url?domain=${encodeURIComponent(domain)}`);
+}
+
+export async function postAuthCallback(url, domain = null) {
+  return fetchJson('/api/auth/moodle-callback', {
+    method: 'POST',
+    body: JSON.stringify({ url, domain }),
   });
 }
 
