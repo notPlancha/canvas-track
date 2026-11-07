@@ -217,3 +217,13 @@ def test_api_sites_management(tmp_path: Path) -> None:
     resp = client.post("/api/sites/deduplicate")
     assert resp.status_code == 200
     assert "removed" in resp.json()
+
+    # 3. Test site icon endpoint (serve local cached icon)
+    site_dir = vault.get_site_dir("ltu")
+    site_dir.mkdir(parents=True, exist_ok=True)
+    icon_file = site_dir / "icon.png"
+    icon_file.write_bytes(b"\x89PNG\r\n\x1a\nfake_icon_bytes")
+
+    resp = client.get("/api/sites/ltu/icon")
+    assert resp.status_code == 200
+    assert resp.content == b"\x89PNG\r\n\x1a\nfake_icon_bytes"
