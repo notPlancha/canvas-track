@@ -37,6 +37,10 @@
   // Current route
   let selectedCourseId = $state(null);
 
+  // Quick Course Switcher flyout
+  let isCoursesFlyoutOpen = $state(false);
+  let flyoutSearchQuery = $state('');
+
   // Modals
   let isAddSiteOpen = $state(false);
   let siteToEdit = $state(null);
@@ -51,6 +55,17 @@
     courses.filter((c) => {
       if (courseFilter === 'synced') return c.is_synced;
       return true;
+    })
+  );
+
+  const flyoutFilteredCourses = $derived(
+    courses.filter((c) => {
+      if (!flyoutSearchQuery.trim()) return true;
+      const q = flyoutSearchQuery.toLowerCase();
+      return (
+        (c.name && c.name.toLowerCase().includes(q)) ||
+        (c.course_code && c.course_code.toLowerCase().includes(q))
+      );
     })
   );
 
@@ -218,22 +233,46 @@
       isSyncingAll = false;
     }
   }
+  function handleKeydown(e) {
+    if (e.key === 'Escape' && isCoursesFlyoutOpen) {
+      isCoursesFlyoutOpen = false;
+    }
+  }
 </script>
+
+<svelte:window onkeydown={handleKeydown} />
 
 <div class="app-container">
   <!-- Global Left Navigation Strip -->
   <aside class="global-nav">
-    <div class="global-nav-logo" title="Canvas Track">
+    <div
+      class="global-nav-logo"
+      title="Canvas Track Dashboard"
+      role="button"
+      tabindex="0"
+      onclick={() => {
+        selectedCourseId = null;
+        isCoursesFlyoutOpen = false;
+      }}
+      onkeydown={(e) => {
+        if (e.key === 'Enter') {
+          selectedCourseId = null;
+          isCoursesFlyoutOpen = false;
+        }
+      }}
+      style="cursor: pointer;"
+    >
       CT
     </div>
 
+    <!-- Quick Course Switcher Button -->
     <div
-      class="nav-item {!selectedCourseId ? 'active' : ''}"
-      onclick={() => (selectedCourseId = null)}
+      class="nav-item {isCoursesFlyoutOpen ? 'active' : ''}"
+      onclick={() => (isCoursesFlyoutOpen = !isCoursesFlyoutOpen)}
       role="button"
       tabindex="0"
-      onkeydown={(e) => e.key === 'Enter' && (selectedCourseId = null)}
-      title="Courses Dashboard"
+      onkeydown={(e) => e.key === 'Enter' && (isCoursesFlyoutOpen = !isCoursesFlyoutOpen)}
+      title="Quick Course Switcher"
     >
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
@@ -242,22 +281,172 @@
       Courses
     </div>
 
+    <div class="nav-divider"></div>
+
+    <!-- Site Switcher (Each Site with Nickname and Icon) -->
+    {#each sites as s (s.id)}
+      <div
+        class="nav-item nav-site-item {activeSiteId === s.id && !isCoursesFlyoutOpen ? 'active' : ''}"
+        onclick={() => {
+          handleSiteChange(s.id);
+          selectedCourseId = null;
+          isCoursesFlyoutOpen = false;
+        }}
+        role="button"
+        tabindex="0"
+        onkeydown={(e) => {
+          if (e.key === 'Enter') {
+            handleSiteChange(s.id);
+            selectedCourseId = null;
+            isCoursesFlyoutOpen = false;
+          }
+        }}
+        title={`Switch to ${s.domain} (${s.user_name || s.id})`}
+      >
+        <div class="nav-site-icon-wrapper">
+          <img
+            src={`/api/sites/${encodeURIComponent(s.id)}/icon`}
+            alt=""
+            class="nav-site-icon"
+            onerror={(e) => {
+              e.currentTarget.style.display = 'none';
+            }}
+          />
+          <span class="nav-site-monogram">
+            {s.id.slice(0, 3).toUpperCase()}
+          </span>
+        </div>
+        <span class="nav-site-label">{s.id}</span>
+      </div>
+    {/each}
+
+    <!-- Add Site Button -->
     <div
       class="nav-item"
-      onclick={() => (isAddSiteOpen = true)}
+      style="height: 48px; margin-top: 4px;"
+      onclick={() => {
+        siteToEdit = null;
+        isAddSiteOpen = true;
+        isCoursesFlyoutOpen = false;
+      }}
       role="button"
       tabindex="0"
-      onkeydown={(e) => e.key === 'Enter' && (isAddSiteOpen = true)}
-      title="Add Canvas Site"
+      onkeydown={(e) => {
+        if (e.key === 'Enter') {
+          siteToEdit = null;
+          isAddSiteOpen = true;
+          isCoursesFlyoutOpen = false;
+        }
+      }}
+      title="Add Another Canvas Site"
     >
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <circle cx="12" cy="12" r="10"></circle>
         <line x1="12" y1="8" x2="12" y2="16"></line>
         <line x1="8" y1="12" x2="16" y2="12"></line>
       </svg>
-      Add Site
+      <span style="font-size: 10px; margin-top: 2px;">+ Site</span>
     </div>
   </aside>
+
+  <!-- Non-Sticky Quick Courses Flyout Drawer -->
+  {#if isCoursesFlyoutOpen}
+    <div
+      class="flyout-backdrop"
+      onclick={() => (isCoursesFlyoutOpen = false)}
+      role="presentation"
+    ></div>
+
+    <div
+      class="course-flyout-pane"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Courses Switcher"
+    >
+      <div class="flyout-header">
+        <h3 class="flyout-title">
+          <span>📚</span> Quick Courses
+          {#if activeSite}
+            <span style="font-size: 12px; font-weight: normal; color: var(--canvas-text-muted);">
+              ({activeSite.id})
+            </span>
+          {/if}
+        </h3>
+        <button
+          type="button"
+          class="btn btn-secondary btn-sm"
+          style="padding: 2px 8px; font-size: 12px;"
+          onclick={() => (isCoursesFlyoutOpen = false)}
+        >
+          ✕
+        </button>
+      </div>
+
+      <div class="flyout-search">
+        <input
+          class="form-input"
+          type="text"
+          bind:value={flyoutSearchQuery}
+          placeholder="Filter courses..."
+          style="padding: 6px 10px; font-size: 13px;"
+        />
+      </div>
+
+      <div class="flyout-courses-list">
+        {#if isLoadingCourses}
+          <div style="padding: 24px; text-align: center; color: var(--canvas-text-muted); font-size: 13px;">
+            Loading courses...
+          </div>
+        {:else if flyoutFilteredCourses.length === 0}
+          <div style="padding: 24px; text-align: center; color: var(--canvas-text-muted); font-size: 13px;">
+            No courses found.
+          </div>
+        {:else}
+          {#each flyoutFilteredCourses as c (c.id)}
+            <div
+              class="flyout-course-item {selectedCourseId === c.id ? 'active' : ''}"
+              onclick={() => {
+                openCourse(c.id);
+                isCoursesFlyoutOpen = false;
+              }}
+              role="button"
+              tabindex="0"
+              onkeydown={(e) => {
+                if (e.key === 'Enter') {
+                  openCourse(c.id);
+                  isCoursesFlyoutOpen = false;
+                }
+              }}
+            >
+              <div class="flyout-course-name">{c.name}</div>
+              <div class="flyout-course-meta">
+                <span>{c.course_code || `ID: ${c.id}`}</span>
+                {#if c.is_synced}
+                  <span style="color: #137333; font-weight: 600;">✓ Synced</span>
+                {:else}
+                  <span style="color: #B06000;">☁️ Available</span>
+                {/if}
+              </div>
+            </div>
+          {/each}
+        {/if}
+      </div>
+
+      <div style="padding: 12px 16px; border-top: 1px solid var(--canvas-border); background: #F8FAFC;">
+        <button
+          type="button"
+          class="btn btn-secondary btn-sm"
+          style="width: 100%; justify-content: center;"
+          onclick={() => {
+            selectedCourseId = null;
+            isCoursesFlyoutOpen = false;
+          }}
+        >
+          📊 Go to Dashboard
+        </button>
+      </div>
+    </div>
+  {/if}
 
   <!-- Main View Area -->
   <div class="main-wrapper">
@@ -350,12 +539,6 @@
               👤 <strong>{activeSite.user_name || 'User'}</strong>
             </span>
           {/if}
-          <button
-            class="btn btn-secondary btn-sm"
-            onclick={() => { siteToEdit = null; isAddSiteOpen = true; }}
-          >
-            + Add Another Site
-          </button>
         </div>
       </header>
 

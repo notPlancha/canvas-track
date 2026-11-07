@@ -17,6 +17,7 @@ from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import Any
 
+import httpx
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
@@ -194,6 +195,42 @@ def create_app(vault_dir: Path | str | None = None) -> FastAPI:
     def delete_site(site_id: str, delete_files: bool = Query(default=False)) -> dict[str, bool]:
         vault.delete_site(site_id, delete_files=delete_files)
         return {"success": True}
+
+    @app.get("/api/sites/{site_id}/icon")
+    async def get_site_icon(site_id: str) -> FileResponse:
+        """Serve or download cached Canvas institution favicon/icon."""
+        site = vault.get_site(site_id)
+        if not site:
+            raise HTTPException(status_code=404, detail="Site not found.")
+
+        site_dir = vault.get_site_dir(site_id)
+        png_path = site_dir / "icon.png"
+        icon_path = site_dir / "favicon.ico"
+
+        if png_path.exists():
+            return FileResponse(png_path, media_type="image/png")
+        if icon_path.exists():
+            return FileResponse(icon_path, media_type="image/x-icon")
+
+        urls = [
+            f"https://{site.domain}/favicon.ico",
+            f"https://www.google.com/s2/favicons?domain={site.domain}&sz=64",
+        ]
+        async with httpx.AsyncClient(timeout=8.0, follow_redirects=True) as client:
+            for u in urls:
+                try:
+                    resp = await client.get(u)
+                    if resp.status_code == 200 and len(resp.content) > 100:
+                        site_dir.mkdir(parents=True, exist_ok=True)
+                        ct = resp.headers.get("content-type") or ""
+                        save_path = png_path if "png" in ct else icon_path
+                        save_path.write_bytes(resp.content)
+                        m_type = "image/png" if "png" in ct else "image/x-icon"
+                        return FileResponse(save_path, media_type=m_type)
+                except Exception as e:
+                    logger.debug("Favicon download failed from %s: %s", u, e)
+
+        raise HTTPException(status_code=404, detail="Site icon not found.")
 
     # 2. Canvas Remote Courses
     @app.get("/api/sites/{site_id}/courses")
