@@ -1,5 +1,5 @@
 <script>
-  import { addSite, updateSite, getEnvConfig, getMoodleSsoUrl } from './api.js';
+  import { addSite, updateSite, getEnvConfig, getMoodleSsoUrl, getSites } from './api.js';
 
   let {
     open = false,
@@ -18,6 +18,7 @@
   let errorMessage = $state('');
   let isWaitingForSSO = $state(false);
   let ssoEventSource = null;
+  let ssoPollTimer = null;
 
   let envConfig = $state({
     canvas_domain: '',
@@ -125,8 +126,17 @@
     }
   }
 
-  function startSSOListener() {
+  async function startSSOListener() {
     stopSSOListener();
+    let initialIds = new Set();
+    try {
+      const existing = await getSites();
+      initialIds = new Set(existing.map((s) => s.id));
+    } catch {
+      // ignore
+    }
+
+    // 1. SSE Listener
     try {
       ssoEventSource = new EventSource('/api/auth/events');
       ssoEventSource.onmessage = (event) => {
@@ -143,17 +153,37 @@
         }
       };
       ssoEventSource.onerror = () => {
-        // SSE error, keep polling or let user paste
+        // SSE error, fallback poller will continue
       };
     } catch (err) {
       console.debug('SSE not supported or connection failed', err);
     }
+
+    // 2. Fast Polling fallback every 1200ms
+    ssoPollTimer = setInterval(async () => {
+      try {
+        const currentSites = await getSites();
+        const newSite = currentSites.find((s) => !initialIds.has(s.id) && s.platform === 'moodle');
+        if (newSite) {
+          stopSSOListener();
+          isWaitingForSSO = false;
+          onSiteAdded(newSite);
+          onClose();
+        }
+      } catch {
+        // ignore
+      }
+    }, 1200);
   }
 
   function stopSSOListener() {
     if (ssoEventSource) {
       ssoEventSource.close();
       ssoEventSource = null;
+    }
+    if (ssoPollTimer) {
+      clearInterval(ssoPollTimer);
+      ssoPollTimer = null;
     }
   }
 
