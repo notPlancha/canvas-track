@@ -11,6 +11,7 @@ import base64
 import logging
 import re
 import sys
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -106,9 +107,19 @@ def register_protocol_handler() -> bool:
             winreg.SetValue(key, "", winreg.REG_SZ, "URL:Canvas Track Protocol")
             winreg.SetValueEx(key, "URL Protocol", 0, winreg.REG_SZ, "")
 
-        # Target command line: invokes canvas-track auth-callback "%1"
-        python_exe = sys.executable
-        cmd_str = f'"{python_exe}" -m canvas_track.cli auth-callback "%1"'
+        # Target command line: invokes silent dispatcher using windowless pythonw.exe
+        python_exe = Path(sys.executable)
+        pythonw_candidate = python_exe.with_name("pythonw.exe")
+        runner_exe = pythonw_candidate if pythonw_candidate.exists() else python_exe
+
+        # Directly post to local server without opening a console window
+        py_code = (
+            "import httpx, sys; "
+            "url = sys.argv[1] if len(sys.argv) > 1 else ''; "
+            "httpx.post('http://127.0.0.1:8000/api/auth/moodle-callback', "
+            "json={'url': url}, timeout=5.0)"
+        )
+        cmd_str = f'"{runner_exe}" -c "{py_code}" "%1"'
 
         cmd_key_path = rf"{protocol_key_path}\shell\open\command"
         with winreg.CreateKey(winreg.HKEY_CURRENT_USER, cmd_key_path) as cmd_key:
