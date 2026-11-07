@@ -162,6 +162,7 @@ class VaultManager:
         token: str,
         user_name: str | None = None,
         user_id: int | None = None,
+        platform: str | None = None,
     ) -> SiteConfig:
         """Update an existing site's configuration and optionally rename its directory."""
         config = self._read_raw_json(self.config_file) or {"sites": []}
@@ -183,10 +184,15 @@ class VaultManager:
             if old_dir.exists() and not new_dir.exists():
                 old_dir.rename(new_dir)
 
+        target_platform = (
+            platform if platform is not None else old_site_raw.get("platform", "canvas")
+        )
+
         updated_site = SiteConfig(
             id=new_sid,
             domain=clean_domain,
             base_url=f"https://{clean_domain}",
+            platform=target_platform,
             user_name=user_name if user_name is not None else old_site_raw.get("user_name"),
             user_id=user_id if user_id is not None else old_site_raw.get("user_id"),
             token=token.strip(),
