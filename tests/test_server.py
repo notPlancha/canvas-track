@@ -227,3 +227,21 @@ def test_api_sites_management(tmp_path: Path) -> None:
     resp = client.get("/api/sites/ltu/icon")
     assert resp.status_code == 200
     assert resp.content == b"\x89PNG\r\n\x1a\nfake_icon_bytes"
+
+
+def test_api_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CANVAS_DOMAIN", "school.instructure.com")
+    monkeypatch.setenv("CANVAS_TOKEN", "mock_env_token")
+    monkeypatch.setenv("CANVAS_SITE_ID", "myschool")
+    monkeypatch.setenv("CANVAS_COURSE_ID", "12345")
+
+    app = create_app(tmp_path)
+    client = TestClient(app)
+    resp = client.get("/api/config")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["canvas_domain"] == "school.instructure.com"
+    assert data["canvas_token"] == "mock_env_token"
+    assert data["canvas_site_id"] == "myschool"
+    assert data["canvas_course_id"] == "12345"
+    assert data["has_env"] is True

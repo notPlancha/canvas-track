@@ -14,6 +14,7 @@ from typing import Annotated
 
 import typer
 import uvicorn
+from dotenv import load_dotenv
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
@@ -23,6 +24,8 @@ from canvas_track.models import SiteConfig
 from canvas_track.server import create_app
 from canvas_track.sync import SyncEngine
 from canvas_track.vault import VaultManager, sanitize_filename
+
+load_dotenv()
 
 app = typer.Typer(
     name="canvas-track",
@@ -65,16 +68,45 @@ def serve(
 
 @app.command()
 def add_site(
-    domain: Annotated[str, typer.Argument(help="Canvas domain (e.g. canvas.ltu.se)")],
-    token: Annotated[str, typer.Argument(help="Personal Access Token")],
+    domain: Annotated[
+        str | None,
+        typer.Argument(
+            help="Canvas domain (e.g. canvas.ltu.se). Defaults to CANVAS_DOMAIN env var if set."
+        ),
+    ] = None,
+    token: Annotated[
+        str | None,
+        typer.Argument(help="Personal Access Token. Defaults to CANVAS_TOKEN env var if set."),
+    ] = None,
     site_id: Annotated[
-        str | None, typer.Option("--id", help="Custom identifier for the site")
+        str | None,
+        typer.Option(
+            "--id", help="Custom identifier for the site (defaults to CANVAS_SITE_ID env var)"
+        ),
     ] = None,
     vault_dir: Annotated[Path | None, typer.Option("--vault-dir", "-v")] = None,
 ) -> None:
     """Validate and register a new Canvas site with a Personal Access Token."""
+    resolved_domain = (domain or os.environ.get("CANVAS_DOMAIN", "")).strip()
+    resolved_token = (token or os.environ.get("CANVAS_TOKEN", "")).strip()
+    resolved_site_id = (site_id or os.environ.get("CANVAS_SITE_ID", "")).strip() or None
+
+    if not resolved_domain:
+        console.print(
+            "[bold red]Error:[/bold red] Canvas domain is required. "
+            "Pass it as an argument or set CANVAS_DOMAIN in your .env file."
+        )
+        raise typer.Exit(code=1)
+
+    if not resolved_token:
+        console.print(
+            "[bold red]Error:[/bold red] Personal Access Token is required. "
+            "Pass it as an argument or set CANVAS_TOKEN in your .env file."
+        )
+        raise typer.Exit(code=1)
+
     vault = VaultManager(vault_dir)
-    client = CanvasClient(domain, token)
+    client = CanvasClient(resolved_domain, resolved_token)
 
     async def _add() -> None:
         async with client:
@@ -86,14 +118,18 @@ def add_site(
                 progress.add_task(description="Authenticating with Canvas...", total=None)
                 user = await client.get_user_profile()
 
-            sid = site_id.strip() if site_id else sanitize_filename(domain.replace(".", "_"))
+            sid = (
+                resolved_site_id
+                if resolved_site_id
+                else sanitize_filename(resolved_domain.replace(".", "_"))
+            )
             site = SiteConfig(
                 id=sid,
-                domain=domain,
+                domain=resolved_domain,
                 base_url=client.base_url,
                 user_name=user.name,
                 user_id=user.id,
-                token=token,
+                token=resolved_token,
             )
             vault.save_site(site)
             console.print(
@@ -132,8 +168,16 @@ def list_sites(
 
 @app.command()
 def sync(
-    site_id: Annotated[str, typer.Argument(help="Registered site ID")],
-    course_id: Annotated[int, typer.Argument(help="Canvas course ID to sync")],
+    site_id: Annotated[
+        str | None,
+        typer.Argument(
+            help="Registered site ID (defaults to CANVAS_SITE_ID or single registered site)"
+        ),
+    ] = None,
+    course_id: Annotated[
+        int | None,
+        typer.Argument(help="Canvas course ID to sync (defaults to CANVAS_COURSE_ID env var)"),
+    ] = None,
     download_files: Annotated[
         bool, typer.Option("--files/--no-files", help="Download course files & attachments")
     ] = True,
@@ -141,13 +185,45 @@ def sync(
 ) -> None:
     """Sync a course into the local offline vault from the terminal."""
     vault = VaultManager(vault_dir)
-    site = vault.get_site(site_id)
+    resolved_site_id = (site_id or os.environ.get("CANVAS_SITE_ID", "")).strip()
+
+    if not resolved_site_id:
+        sites = vault.list_sites()
+        if len(sites) == 1:
+            resolved_site_id = sites[0].id
+        elif len(sites) > 1:
+            console.print(
+                "[bold red]Error:[/bold red] Multiple sites registered. "
+                "Specify site_id or set CANVAS_SITE_ID in .env."
+            )
+            raise typer.Exit(code=1)
+        else:
+            console.print(
+                "[bold red]Error:[/bold red] No sites registered. "
+                "Run 'canvas-track add-site' first or configure .env."
+            )
+            raise typer.Exit(code=1)
+
+    site = vault.get_site(resolved_site_id)
     if not site:
-        console.print(f"[bold red]Error:[/bold red] Site '{site_id}' not found in vault.")
+        console.print(f"[bold red]Error:[/bold red] Site '{resolved_site_id}' not found in vault.")
+        raise typer.Exit(code=1)
+
+    resolved_course_id = course_id
+    if resolved_course_id is None:
+        env_course = os.environ.get("CANVAS_COURSE_ID", "").strip()
+        if env_course and env_course.isdigit():
+            resolved_course_id = int(env_course)
+
+    if resolved_course_id is None:
+        console.print(
+            "[bold red]Error:[/bold red] Course ID is required. "
+            "Pass it as an argument or set CANVAS_COURSE_ID in your .env file."
+        )
         raise typer.Exit(code=1)
 
     client = CanvasClient(site.domain, site.token)
-    sync_engine = SyncEngine(client, vault, site_id)
+    sync_engine = SyncEngine(client, vault, resolved_site_id)
 
     async def _sync() -> None:
         async with client:
@@ -155,7 +231,9 @@ def sync(
                 SpinnerColumn(),
                 TextColumn("[progress.description]{task.description}"),
             ) as progress:
-                task = progress.add_task(description=f"Syncing course {course_id}...", total=None)
+                task = progress.add_task(
+                    description=f"Syncing course {resolved_course_id}...", total=None
+                )
 
                 async def progress_cb(evt: dict) -> None:
                     stage = evt.get("stage", "")
@@ -163,7 +241,7 @@ def sync(
                     progress.update(task, description=f"[{stage.upper()}] {msg}")
 
                 meta = await sync_engine.sync_course(
-                    course_id, progress_cb=progress_cb, download_files=download_files
+                    resolved_course_id, progress_cb=progress_cb, download_files=download_files
                 )
 
             console.print("\n[bold green]Course synced successfully![/bold green]")

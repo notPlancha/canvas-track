@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
@@ -30,6 +31,7 @@ from canvas_track.rewriter import CanvasLinkRewriter
 from canvas_track.sync_manager import sync_manager
 from canvas_track.vault import VaultManager, sanitize_filename
 
+load_dotenv()
 logger = logging.getLogger(__name__)
 
 
@@ -56,6 +58,22 @@ def create_app(vault_dir: Path | str | None = None) -> FastAPI:
         allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
         allow_headers=["*"],
     )
+
+    # 0. Environment Configuration
+    @app.get("/api/config")
+    def get_env_config() -> dict[str, Any]:
+        """Return environment defaults configured via .env."""
+        domain = os.environ.get("CANVAS_DOMAIN", "").strip()
+        token = os.environ.get("CANVAS_TOKEN", "").strip()
+        site_id = os.environ.get("CANVAS_SITE_ID", "").strip()
+        course_id = os.environ.get("CANVAS_COURSE_ID", "").strip()
+        return {
+            "canvas_domain": domain,
+            "canvas_token": token,
+            "canvas_site_id": site_id,
+            "canvas_course_id": course_id,
+            "has_env": bool(domain or token),
+        }
 
     # 1. Site Management
     @app.get("/api/sites")
