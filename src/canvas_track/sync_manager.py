@@ -16,6 +16,8 @@ from pydantic import BaseModel, Field
 
 from canvas_track.client import CanvasClient
 from canvas_track.models import CourseMeta
+from canvas_track.moodle_client import MoodleClient
+from canvas_track.moodle_sync import MoodleSyncEngine
 from canvas_track.sync import SyncEngine
 from canvas_track.vault import VaultManager
 
@@ -219,8 +221,17 @@ class SyncJobManager:
             job.fail(f"Site '{site_id}' not found in vault configuration.")
             return job
 
-        client = CanvasClient(site.domain, site.token)
-        sync_engine = SyncEngine(client, vault, site_id)
+        sync_engine: MoodleSyncEngine | SyncEngine
+        client: MoodleClient | CanvasClient
+
+        if site.platform == "moodle":
+            m_client = MoodleClient(site.domain, site.token)
+            client = m_client
+            sync_engine = MoodleSyncEngine(m_client, vault, site_id)
+        else:
+            c_client = CanvasClient(site.domain, site.token)
+            client = c_client
+            sync_engine = SyncEngine(c_client, vault, site_id)
 
         async def _run() -> None:
             try:
