@@ -301,7 +301,7 @@
                   onclick={openEditSite}
                   title="Edit site details, domain, or access token"
                 >
-                  ✏️ Edit
+                  ✏️
                 </button>
                 <button
                   type="button"
@@ -415,7 +415,22 @@
               {@const job = syncJobs[jobKey]}
               {@const isSyncing = job && job.status === 'running'}
 
-              <div class="course-card">
+              <!-- svelte-ignore a11y_click_events_have_key_events -->
+              <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+              <div
+                class="course-card {course.is_synced ? 'clickable' : ''}"
+                onclick={() => {
+                  if (course.is_synced) openCourse(course.id);
+                }}
+                role={course.is_synced ? "button" : undefined}
+                tabindex={course.is_synced ? 0 : undefined}
+                onkeydown={(e) => {
+                  if (course.is_synced && (e.key === 'Enter' || e.key === ' ')) {
+                    e.preventDefault();
+                    openCourse(course.id);
+                  }
+                }}
+              >
                 <div class="course-card-header">
                   <h3>{course.name}</h3>
                   <div class="course-card-code">{course.course_code || `Course ID: ${course.id}`}</div>
@@ -424,7 +439,7 @@
                 <div class="course-card-body">
                   {#if isSyncing}
                     <!-- Live Background Syncing Indicator on Course Card -->
-                    <div class="card-syncing-banner">
+                    <div class="card-syncing-banner" onclick={(e) => e.stopPropagation()}>
                       <div class="syncing-header">
                         <span class="sync-spinner"></span>
                         <span class="sync-stage-text">Syncing: <strong style="text-transform: capitalize;">{job.stage}</strong></span>
@@ -438,7 +453,10 @@
                         <button
                           class="btn btn-secondary btn-sm"
                           style="width: 100%; justify-content: center;"
-                          onclick={() => triggerSync(course.id, course.name)}
+                          onclick={(e) => {
+                            e.stopPropagation();
+                            triggerSync(course.id, course.name);
+                          }}
                         >
                           👁️ View Live Progress
                         </button>
@@ -459,27 +477,25 @@
 
                     <div class="course-card-footer">
                       <div style="display: flex; gap: 8px; align-items: center;">
-                        {#if course.is_synced}
+                        {#if !course.is_synced}
                           <button
                             class="btn btn-primary btn-sm"
-                            onclick={() => openCourse(course.id)}
-                          >
-                            📖 Read Offline
-                          </button>
-                        {:else}
-                          <button
-                            class="btn btn-secondary btn-sm"
-                            onclick={() => triggerSync(course.id, course.name)}
+                            onclick={(e) => {
+                              e.stopPropagation();
+                              triggerSync(course.id, course.name);
+                            }}
                           >
                             ⬇️ Sync to Vault
                           </button>
                         {/if}
 
                         {#if activeSite}
-                          <CanvasLinkButtons
-                            url={`https://${activeSite.domain}/courses/${course.id}`}
-                            label="course"
-                          />
+                          <div onclick={(e) => e.stopPropagation()}>
+                            <CanvasLinkButtons
+                              url={`https://${activeSite.domain}/courses/${course.id}`}
+                              label="course"
+                            />
+                          </div>
                         {/if}
                       </div>
 
@@ -487,14 +503,20 @@
                         <div style="display: flex; gap: 6px; align-items: center;">
                           <button
                             class="btn btn-secondary btn-sm"
-                            onclick={() => triggerSync(course.id, course.name)}
+                            onclick={(e) => {
+                              e.stopPropagation();
+                              triggerSync(course.id, course.name);
+                            }}
                             title="Re-sync updates"
                           >
                             ↻ Sync
                           </button>
                           <button
                             class="btn btn-secondary btn-sm btn-icon-danger"
-                            onclick={() => confirmDeleteBackup(course)}
+                            onclick={(e) => {
+                              e.stopPropagation();
+                              confirmDeleteBackup(course);
+                            }}
                             title="Delete local backup"
                           >
                             🗑️
