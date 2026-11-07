@@ -1,20 +1,20 @@
 # Canvas Track 🎓
 
-> Offline sync engine and reader for Canvas LMS courses. Built with modern Python (**FastAPI** + **uv**) and **Svelte 5** (via **bun**).
+> Offline sync engine and reader for Canvas LMS and Moodle LMS courses. Built with modern Python (**FastAPI** + **uv**) and **Svelte 5** (via **bun**).
 
-Sync entire Canvas LMS courses into an offline-ready local folder vault. Canvas Track creates a local archive of your course materials, rich wiki pages (including front page / home page), modules, files, announcements, assignments, rubrics, and discussions—with local link rewriting so you can browse the course completely offline.
+Sync entire Canvas and Moodle LMS courses into an offline-ready local folder vault. Canvas Track creates a local archive of your course materials, rich wiki pages, sections & modules, files, announcements, assignments, rubrics, and discussions—with local link rewriting so you can browse courses completely offline.
 
 ---
 
 ## ✨ Features
 
-- **Strictly Read-Only**: Performs only read-only `GET` requests against Canvas API; never alters or modifies your courses or account.
+- **Strictly Read-Only**: Performs only read-only requests against Canvas and Moodle APIs; never alters or modifies your courses or account.
+- **Dual LMS Architecture**: Unified offline viewer and vault structure supporting both **Canvas LMS** and **Moodle LMS**.
+- **Hands-Free Moodle Student SSO**: 1-click Single Sign-On bridge (`canvastrack://`) supporting institutional Microsoft / SAML logins with automatic token handoff.
 - **Pages & Home Page First-Class Support**:
-  - Automatically detects whether a course uses a Wiki front page, modules, or syllabus as its home page.
-  - Downloads complete HTML bodies for all wiki pages.
-  - Rewrites internal Canvas links (`/courses/:id/pages/...`, `/files/:id/...`, `$CANVAS_OBJECT_REFERENCE$...`) to navigate seamlessly offline.
-- **Hassle-Free Personal Access Token Setup**: Direct 1-click link to your Canvas account's Approved Integrations with step-by-step guidance and instant profile verification.
-- **Full LMS Offline UI**: Svelte 5 frontend mirroring the Canvas experience (Modules tree, Pages explorer, Assignments & student feedback, Discussions with student reply threads, Announcements).
+  - Automatically detects home page configurations (wiki front pages, modules, syllabus).
+  - Downloads complete HTML bodies for all pages and resources.
+  - Rewrites internal links to navigate seamlessly offline.
 - **Incremental Sync with Resume**: Tracks SHA-256 hashes and file sizes; skips unchanged files and resumes interrupted downloads.
 - **Self-Contained Vault**: Backups are stored in human-readable JSON API dumps and mirrored folder hierarchies without requiring Git for end users.
 
@@ -24,7 +24,7 @@ Sync entire Canvas LMS courses into an offline-ready local folder vault. Canvas 
 
 ### 1. Configuration (Optional `.env`)
 
-Copy the example environment file to configure your Canvas domain and token:
+Copy the example environment file to configure your Canvas or Moodle domain and tokens:
 
 ```bash
 cp .env.example .env
@@ -33,10 +33,16 @@ cp .env.example .env
 Edit `.env`:
 
 ```env
+# Canvas Configuration
 CANVAS_DOMAIN=canvas.ltu.se
-CANVAS_TOKEN=<YOUR_PERSONAL_ACCESS_TOKEN>
+CANVAS_TOKEN=<YOUR_CANVAS_TOKEN>
 CANVAS_SITE_ID=ltu
 CANVAS_COURSE_ID=29010
+
+# Moodle Configuration
+MOODLE_URL=https://moodle.lnu.se
+MOODLE_TOKEN=<YOUR_MOODLE_TOKEN_OR_SSO_LINK>
+MOODLE_COURSE_ID=73674
 ```
 
 When set, the web GUI pre-populates your connection modal and settings links, and CLI commands default to these values without requiring manual entry.
@@ -53,14 +59,14 @@ This launches the local server and automatically opens `http://127.0.0.1:8000` i
 
 ### 3. Command Line Usage
 
-Register a Canvas site directly from the terminal (uses `.env` if arguments are omitted):
+Register a Canvas or Moodle site directly from the terminal:
 
 ```bash
-# If .env is configured:
-uv run canvas-track add-site
+# Register a Canvas site:
+uv run canvas-track add-site canvas.ltu.se <TOKEN> --id ltu
 
-# Or with explicit arguments:
-uv run canvas-track add-site canvas.ltu.se <YOUR_PERSONAL_ACCESS_TOKEN> --id ltu
+# Register a Moodle site:
+uv run canvas-track add-site moodle.lnu.se <TOKEN_OR_SSO_LINK> --platform moodle --id lnu
 ```
 
 List registered sites:
@@ -72,11 +78,8 @@ uv run canvas-track list-sites
 Sync a course to your offline vault:
 
 ```bash
-# If .env is configured:
-uv run canvas-track sync
-
-# Or with explicit site and course ID:
-uv run canvas-track sync ltu 29010
+# Sync course by site ID and course ID:
+uv run canvas-track sync lnu 73674
 ```
 
 ---
