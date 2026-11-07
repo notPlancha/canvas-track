@@ -547,7 +547,7 @@
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
           <div>
             <h1 style="font-size: 22px; font-weight: 700; color: var(--canvas-navy);">
-              {activeSite ? `${activeSite.domain} Courses` : 'Your Courses'}
+              {activeSite ? `${activeSite.domain} (${activeSite.platform === 'moodle' ? 'Moodle' : 'Canvas'}) Courses` : 'Your Courses'}
             </h1>
             <p style="font-size: 13px; color: var(--canvas-text-muted);">
               Select a course to read offline or trigger an incremental sync.
@@ -675,7 +675,9 @@
                         {#if activeSite}
                           <div onclick={(e) => e.stopPropagation()}>
                             <CanvasLinkButtons
-                              url={`https://${activeSite.domain}/courses/${course.id}`}
+                              url={activeSite.platform === 'moodle'
+                                ? `https://${activeSite.domain}/course/view.php?id=${course.id}`
+                                : `https://${activeSite.domain}/courses/${course.id}`}
                               label="course"
                             />
                           </div>
