@@ -45,3 +45,12 @@ def test_cli_delete_backup(tmp_path: Path) -> None:
     )
     assert result2.exit_code == 0
     assert "No local backup found" in result2.stdout
+
+
+def test_cli_add_site_missing_args_error(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.delenv("CANVAS_DOMAIN", raising=False)
+    monkeypatch.delenv("CANVAS_TOKEN", raising=False)
+
+    result = runner.invoke(app, ["add-site", "--vault-dir", str(tmp_path)])
+    assert result.exit_code != 0
+    assert "Canvas domain is required" in result.stdout
