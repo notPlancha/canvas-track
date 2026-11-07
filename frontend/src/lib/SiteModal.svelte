@@ -1,5 +1,5 @@
 <script>
-  import { addSite, updateSite } from './api.js';
+  import { addSite, updateSite, getEnvConfig } from './api.js';
 
   let {
     open = false,
@@ -15,11 +15,14 @@
   let showToken = $state(false);
   let isLoading = $state(false);
   let errorMessage = $state('');
+  let envConfig = $state({ canvas_domain: '', canvas_token: '', canvas_site_id: '', has_env: false });
+  let loadedFromEnv = $state(false);
 
   $effect(() => {
     if (open) {
       errorMessage = '';
       showToken = false;
+      loadedFromEnv = false;
       if (siteToEdit) {
         domain = siteToEdit.domain || '';
         token = siteToEdit.token || '';
@@ -28,13 +31,36 @@
         domain = '';
         token = '';
         siteId = '';
+
+        // Check for local .env defaults
+        getEnvConfig().then((cfg) => {
+          if (cfg) {
+            envConfig = cfg;
+            let usedEnv = false;
+            if (!domain && cfg.canvas_domain) {
+              domain = cfg.canvas_domain;
+              usedEnv = true;
+            }
+            if (!token && cfg.canvas_token) {
+              token = cfg.canvas_token;
+              usedEnv = true;
+            }
+            if (!siteId && cfg.canvas_site_id) {
+              siteId = cfg.canvas_site_id;
+            }
+            if (usedEnv) {
+              loadedFromEnv = true;
+            }
+          }
+        }).catch(() => {
+          // ignore if backend endpoint is unavailable
+        });
       }
     }
   });
 
   function openCanvasSettings() {
-    let cleanDomain = domain.trim().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
-    if (!cleanDomain) cleanDomain = 'canvas.ltu.se';
+    let cleanDomain = (domain.trim() || envConfig.canvas_domain || 'canvas.instructure.com').replace(/^https?:\/\//, '').replace(/\/.*$/, '');
     window.open(`https://${cleanDomain}/profile/settings#access_tokens`, '_blank');
   }
 
@@ -78,6 +104,13 @@
             </div>
           {/if}
 
+          {#if loadedFromEnv && !siteToEdit}
+            <div style="background: #E8F0FE; color: #1A73E8; padding: 8px 12px; border-radius: 6px; margin-bottom: 14px; font-size: 12px; display: flex; align-items: center; gap: 6px; border: 1px solid #D2E3FC;">
+              <span>⚙️</span>
+              <span>Pre-filled from your local <code>.env</code> file.</span>
+            </div>
+          {/if}
+
           <div class="form-group">
             <label class="form-label" for="site-domain">Canvas Domain</label>
             <input
@@ -85,7 +118,7 @@
               class="form-input"
               type="text"
               bind:value={domain}
-              placeholder="e.g. canvas.ltu.se or school.instructure.com"
+              placeholder={envConfig.canvas_domain ? `e.g. ${envConfig.canvas_domain}` : "e.g. canvas.instructure.com"}
               required
             />
             <div class="form-hint">The domain your institution uses for Canvas LMS.</div>
