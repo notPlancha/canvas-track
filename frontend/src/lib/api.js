@@ -146,23 +146,6 @@ export async function syncAllCourses(downloadFiles = true) {
   });
 }
 
-export async function getPageComments(siteId, courseId, pageUrl) {
-  return fetchJson(`/api/vault/courses/${encodeURIComponent(siteId)}/${courseId}/pages/${encodeURIComponent(pageUrl)}/comments`);
-}
-
-export async function addPageComment(siteId, courseId, pageUrl, text) {
-  return fetchJson(`/api/vault/courses/${encodeURIComponent(siteId)}/${courseId}/pages/${encodeURIComponent(pageUrl)}/comments`, {
-    method: 'POST',
-    body: JSON.stringify({ text }),
-  });
-}
-
-export async function deletePageComment(siteId, courseId, pageUrl, commentId) {
-  return fetchJson(`/api/vault/courses/${encodeURIComponent(siteId)}/${courseId}/pages/${encodeURIComponent(pageUrl)}/comments/${encodeURIComponent(commentId)}`, {
-    method: 'DELETE',
-  });
-}
-
 export function subscribeSync(siteId, courseId, downloadFiles = true, courseName = '', onEvent = () => {}, onDone = () => {}, onError = () => {}) {
   const params = new URLSearchParams({
     download_files: String(downloadFiles),

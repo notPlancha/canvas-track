@@ -157,33 +157,3 @@ def test_vault_site_deduplication_and_update(tmp_path: Path) -> None:
     sites = vault.list_sites()
     assert len(sites) == 1
     assert sites[0].id == "s1"
-
-
-def test_vault_page_comments(tmp_path: Path) -> None:
-    vault = VaultManager(tmp_path)
-    site_id = "test_site"
-    course_id = 101
-    page_url = "intro-page"
-
-    # Initially empty
-    comments = vault.get_page_comments(site_id, course_id, page_url)
-    assert comments == []
-
-    # Add comment
-    c1 = vault.add_page_comment(site_id, course_id, page_url, "Remember to read chapter 1.")
-    assert c1["text"] == "Remember to read chapter 1."
-    assert "id" in c1
-    assert "created_at" in c1
-
-    # Add second comment
-    c2 = vault.add_page_comment(site_id, course_id, page_url, "Exam date changed.")
-    comments = vault.get_page_comments(site_id, course_id, page_url)
-    assert len(comments) == 2
-
-    # Delete first comment
-    deleted = vault.delete_page_comment(site_id, course_id, page_url, c1["id"])
-    assert deleted is True
-
-    comments = vault.get_page_comments(site_id, course_id, page_url)
-    assert len(comments) == 1
-    assert comments[0]["id"] == c2["id"]
