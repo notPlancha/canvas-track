@@ -22,7 +22,8 @@ src/canvas_track/static/
 
 # Environment, Secrets & Local Data
 .env
-*.env.local
+.env.*
+!.env.example
 token.txt
 vault/
 tests_data/
