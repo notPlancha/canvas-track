@@ -140,11 +140,12 @@ class CanvasDiscussionTopic(BaseModel):
 
 class SiteConfig(BaseModel):
     id: str  # sanitized identifier or hash
-    domain: str  # e.g., canvas.ltu.se
-    base_url: str = ""  # https://canvas.ltu.se
+    domain: str  # e.g., canvas.ltu.se or moodle.example.edu
+    base_url: str = ""  # https://canvas.ltu.se or https://moodle.example.edu
+    platform: str = "canvas"  # "canvas" or "moodle"
     user_name: str | None = None
     user_id: int | None = None
-    token: str  # Personal Access Token
+    token: str  # Personal Access Token or Web Service Token
     created_at: str = Field(default_factory=lambda: datetime.now().isoformat())
 
 
