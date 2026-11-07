@@ -24,6 +24,10 @@ export async function fetchJson(endpoint, options = {}) {
   return resp.json();
 }
 
+export async function getEnvConfig() {
+  return fetchJson('/api/config');
+}
+
 export async function getSites() {
   return fetchJson('/api/sites');
 }

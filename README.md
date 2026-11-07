@@ -22,7 +22,26 @@ Sync entire Canvas LMS courses into an offline-ready local folder vault. Canvas 
 
 ## 🚀 Quick Start
 
-### 1. Run the Web Application
+### 1. Configuration (Optional `.env`)
+
+Copy the example environment file to configure your Canvas domain and token:
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env`:
+
+```env
+CANVAS_DOMAIN=canvas.ltu.se
+CANVAS_TOKEN=<YOUR_PERSONAL_ACCESS_TOKEN>
+CANVAS_SITE_ID=ltu
+CANVAS_COURSE_ID=29010
+```
+
+When set, the web GUI pre-populates your connection modal and settings links, and CLI commands default to these values without requiring manual entry.
+
+### 2. Run the Web Application
 
 With [`uv`](https://docs.astral.sh/uv/) installed, run:
 
@@ -32,11 +51,15 @@ uv run canvas-track serve
 
 This launches the local server and automatically opens `http://127.0.0.1:8000` in your default browser.
 
-### 2. Command Line Usage
+### 3. Command Line Usage
 
-Register a Canvas site directly from the terminal:
+Register a Canvas site directly from the terminal (uses `.env` if arguments are omitted):
 
 ```bash
+# If .env is configured:
+uv run canvas-track add-site
+
+# Or with explicit arguments:
 uv run canvas-track add-site canvas.ltu.se <YOUR_PERSONAL_ACCESS_TOKEN> --id ltu
 ```
 
@@ -49,7 +72,10 @@ uv run canvas-track list-sites
 Sync a course to your offline vault:
 
 ```bash
-# Sync course 29010 (Advanced Data Mining)
+# If .env is configured:
+uv run canvas-track sync
+
+# Or with explicit site and course ID:
 uv run canvas-track sync ltu 29010
 ```
 
