@@ -106,31 +106,31 @@
           </div>
 
           <div class="form-group">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-              <label class="form-label" for="site-token" style="margin-bottom: 0;">Personal Access Token</label>
+            <label class="form-label" for="site-token">Personal Access Token</label>
+            <div style="position: relative; display: flex; align-items: center;">
+              <input
+                id="site-token"
+                class="form-input"
+                type={showToken ? 'text' : 'password'}
+                bind:value={token}
+                placeholder="Paste token here..."
+                required
+                style="padding-right: 42px; font-family: monospace; font-size: 13px;"
+              />
               <button
                 type="button"
-                class="btn btn-secondary btn-sm"
-                style="padding: 2px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;"
                 onclick={() => (showToken = !showToken)}
-                title={showToken ? 'Hide access token' : 'Show access token'}
+                title={showToken ? 'Hide token' : 'Show token'}
+                aria-label={showToken ? 'Hide token' : 'Show token'}
+                style="position: absolute; right: 10px; background: none; border: none; cursor: pointer; padding: 4px; font-size: 15px; color: #718096; display: flex; align-items: center; justify-content: center;"
               >
                 {#if showToken}
-                  🙈 Hide Token
+                  🙈
                 {:else}
-                  👁️ Show Token
+                  👁️
                 {/if}
               </button>
             </div>
-            <input
-              id="site-token"
-              class="form-input"
-              type={showToken ? 'text' : 'password'}
-              bind:value={token}
-              placeholder="Paste token here..."
-              required
-              style="font-family: monospace; font-size: 13px;"
-            />
             <div class="form-hint">Read-only API access. Your token never leaves your local machine.</div>
           </div>
 

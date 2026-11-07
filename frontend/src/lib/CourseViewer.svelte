@@ -169,9 +169,6 @@
     </div>
 
     <div class="top-bar-right">
-      <span class="offline-badge">
-        ✓ Local Offline Vault
-      </span>
       {#if courseData.canvas_url}
         <CanvasLinkButtons url={courseData.canvas_url} label="course" />
       {/if}
