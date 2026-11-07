@@ -246,13 +246,19 @@ button {
   border-radius: 8px;
   overflow: hidden;
   box-shadow: var(--shadow-sm);
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
   display: flex;
   flex-direction: column;
+}
+.course-card.clickable {
+  cursor: pointer;
 }
 .course-card:hover {
   transform: translateY(-2px);
   box-shadow: var(--shadow-md);
+}
+.course-card.clickable:hover {
+  border-color: #A0AEC0;
 }
 
 .course-card-header {
