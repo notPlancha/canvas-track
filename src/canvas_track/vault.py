@@ -14,7 +14,6 @@ import os
 import re
 import shutil
 import stat
-import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -457,46 +456,3 @@ class VaultManager:
         disc_dir = self.get_api_raw_dir(site_id, course_id) / "discussions"
         path = disc_dir / f"{topic_id}.json"
         return self._read_raw_json(path)
-
-    # Page Comments / Notes
-    def get_page_comments_path(self, site_id: str, course_id: int, page_url: str) -> Path:
-        """Get the JSON path where comments for a specific page are stored."""
-        return (
-            self.get_course_dir(site_id, course_id)
-            / "comments"
-            / f"{sanitize_filename(page_url)}.json"
-        )
-
-    def get_page_comments(
-        self, site_id: str, course_id: int, page_url: str
-    ) -> list[dict[str, Any]]:
-        """Retrieve local notes/comments for a specific page."""
-        path = self.get_page_comments_path(site_id, course_id, page_url)
-        return self._read_raw_json(path) or []
-
-    def add_page_comment(
-        self, site_id: str, course_id: int, page_url: str, text: str
-    ) -> dict[str, Any]:
-        """Add a local note/comment to a specific page."""
-        comments = self.get_page_comments(site_id, course_id, page_url)
-        new_comment = {
-            "id": str(uuid.uuid4())[:8],
-            "text": text.strip(),
-            "created_at": datetime.now().isoformat(),
-        }
-        comments.append(new_comment)
-        path = self.get_page_comments_path(site_id, course_id, page_url)
-        self._save_raw_json(path, comments)
-        return new_comment
-
-    def delete_page_comment(
-        self, site_id: str, course_id: int, page_url: str, comment_id: str
-    ) -> bool:
-        """Delete a local note/comment by its ID."""
-        comments = self.get_page_comments(site_id, course_id, page_url)
-        filtered = [c for c in comments if c.get("id") != comment_id]
-        if len(filtered) != len(comments):
-            path = self.get_page_comments_path(site_id, course_id, page_url)
-            self._save_raw_json(path, filtered)
-            return True
-        return False

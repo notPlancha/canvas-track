@@ -191,7 +191,7 @@ def test_api_vault_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Non
     assert resp.status_code == 404
 
 
-def test_api_page_comments_and_sites_management(tmp_path: Path) -> None:
+def test_api_sites_management(tmp_path: Path) -> None:
     app = create_app(tmp_path)
     client = TestClient(app)
 
@@ -217,33 +217,3 @@ def test_api_page_comments_and_sites_management(tmp_path: Path) -> None:
     resp = client.post("/api/sites/deduplicate")
     assert resp.status_code == 200
     assert "removed" in resp.json()
-
-    # 3. Test Comments endpoints
-    # Empty comments initially
-    resp = client.get("/api/vault/courses/ltu/29010/pages/week-1/comments")
-    assert resp.status_code == 200
-    assert resp.json() == []
-
-    # Add comment
-    resp = client.post(
-        "/api/vault/courses/ltu/29010/pages/week-1/comments",
-        json={"text": "Review formulas for final."},
-    )
-    assert resp.status_code == 200
-    created = resp.json()["comment"]
-    assert created["text"] == "Review formulas for final."
-    comment_id = created["id"]
-
-    # Verify comment list
-    resp = client.get("/api/vault/courses/ltu/29010/pages/week-1/comments")
-    assert resp.status_code == 200
-    assert len(resp.json()) == 1
-
-    # Delete comment
-    resp = client.delete(f"/api/vault/courses/ltu/29010/pages/week-1/comments/{comment_id}")
-    assert resp.status_code == 200
-    assert resp.json()["success"] is True
-
-    # Verify deleted
-    resp = client.get("/api/vault/courses/ltu/29010/pages/week-1/comments")
-    assert resp.json() == []

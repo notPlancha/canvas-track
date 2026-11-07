@@ -44,10 +44,6 @@ class UpdateSiteRequest(BaseModel):
     site_id: str | None = None
 
 
-class AddCommentRequest(BaseModel):
-    text: str
-
-
 def create_app(vault_dir: Path | str | None = None) -> FastAPI:
     vault = VaultManager(vault_dir)
     app = FastAPI(title="Canvas Track", version="0.1.0")
@@ -528,31 +524,7 @@ def create_app(vault_dir: Path | str | None = None) -> FastAPI:
             "message": f"Opened {file_path.name} in system viewer.",
         }
 
-    # 5. Page Comments / Notes
-    @app.get("/api/vault/courses/{site_id}/{course_id}/pages/{page_url}/comments")
-    def get_page_comments(site_id: str, course_id: int, page_url: str) -> list[dict[str, Any]]:
-        return vault.get_page_comments(site_id, course_id, page_url)
-
-    @app.post("/api/vault/courses/{site_id}/{course_id}/pages/{page_url}/comments")
-    def add_page_comment(
-        site_id: str, course_id: int, page_url: str, payload: AddCommentRequest
-    ) -> dict[str, Any]:
-        text = payload.text.strip()
-        if not text:
-            raise HTTPException(status_code=400, detail="Comment text cannot be empty.")
-        comment = vault.add_page_comment(site_id, course_id, page_url, text)
-        return {"success": True, "comment": comment}
-
-    @app.delete("/api/vault/courses/{site_id}/{course_id}/pages/{page_url}/comments/{comment_id}")
-    def delete_page_comment(
-        site_id: str, course_id: int, page_url: str, comment_id: str
-    ) -> dict[str, bool]:
-        deleted = vault.delete_page_comment(site_id, course_id, page_url, comment_id)
-        if not deleted:
-            raise HTTPException(status_code=404, detail="Comment not found.")
-        return {"success": True}
-
-    # 6. Serve Svelte Frontend Static Build
+    # 5. Serve Svelte Frontend Static Build
     static_dir = Path(__file__).parent / "static"
     if static_dir.exists():
         app.mount("/assets", StaticFiles(directory=static_dir / "assets"), name="assets")
