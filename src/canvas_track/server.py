@@ -7,12 +7,14 @@ and offline course browsing with link rewriting and file serving.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import mimetypes
 import os
 import subprocess
 import sys
+import urllib.parse
 from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import Any
@@ -27,6 +29,13 @@ from pydantic import BaseModel
 
 from canvas_track.client import CanvasClient
 from canvas_track.models import SiteConfig
+from canvas_track.moodle_client import MoodleClient
+from canvas_track.moodle_rewriter import MoodleLinkRewriter
+from canvas_track.protocol import (
+    build_moodle_sso_url,
+    extract_moodle_token,
+    register_protocol_handler,
+)
 from canvas_track.rewriter import CanvasLinkRewriter
 from canvas_track.sync_manager import sync_manager
 from canvas_track.vault import VaultManager, sanitize_filename
@@ -39,17 +48,29 @@ class AddSiteRequest(BaseModel):
     domain: str
     token: str
     site_id: str | None = None
+    platform: str = "canvas"  # "canvas" or "moodle"
 
 
 class UpdateSiteRequest(BaseModel):
     domain: str
     token: str
     site_id: str | None = None
+    platform: str = "canvas"
+
+
+class AuthCallbackRequest(BaseModel):
+    url: str
+    domain: str | None = None
 
 
 def create_app(vault_dir: Path | str | None = None) -> FastAPI:
     vault = VaultManager(vault_dir)
     app = FastAPI(title="Canvas Track", version="0.1.0")
+
+    # Automatically register canvastrack:// protocol in HKCU on Windows
+    register_protocol_handler()
+
+    auth_subscribers: set[asyncio.Queue[dict[str, Any] | None]] = set()
 
     app.add_middleware(
         CORSMiddleware,
@@ -67,12 +88,18 @@ def create_app(vault_dir: Path | str | None = None) -> FastAPI:
         token = os.environ.get("CANVAS_TOKEN", "").strip()
         site_id = os.environ.get("CANVAS_SITE_ID", "").strip()
         course_id = os.environ.get("CANVAS_COURSE_ID", "").strip()
+        moodle_url = os.environ.get("MOODLE_URL", "").strip()
+        moodle_token = os.environ.get("MOODLE_TOKEN", "").strip()
+        moodle_course_id = os.environ.get("MOODLE_COURSE_ID", "").strip()
         return {
             "canvas_domain": domain,
             "canvas_token": token,
             "canvas_site_id": site_id,
             "canvas_course_id": course_id,
-            "has_env": bool(domain or token),
+            "moodle_url": moodle_url,
+            "moodle_token": moodle_token,
+            "moodle_course_id": moodle_course_id,
+            "has_env": bool(domain or token or moodle_url or moodle_token),
         }
 
     # 1. Site Management
@@ -84,6 +111,7 @@ def create_app(vault_dir: Path | str | None = None) -> FastAPI:
                 "id": s.id,
                 "domain": s.domain,
                 "base_url": s.base_url,
+                "platform": s.platform,
                 "user_name": s.user_name,
                 "user_id": s.user_id,
                 "token": s.token,
@@ -96,58 +124,84 @@ def create_app(vault_dir: Path | str | None = None) -> FastAPI:
     async def add_site(payload: AddSiteRequest) -> dict[str, Any]:
         domain = payload.domain.strip().lower()
         if not domain:
-            raise HTTPException(status_code=400, detail="Canvas domain is required.")
+            raise HTTPException(status_code=400, detail="Site domain is required.")
 
-        async with CanvasClient(domain, payload.token) as client:
-            try:
-                user = await client.get_user_profile()
-            except Exception as e:
-                logger.error("Failed to authenticate with Canvas at %s: %s", domain, e)
-                msg = f"Failed to authenticate with Canvas at {domain}. Please check your token."
-                raise HTTPException(status_code=401, detail=msg) from e
+        platform = (payload.platform or "canvas").strip().lower()
 
-            # Check duplicate site detection
-            existing_dup = vault.find_duplicate_site(domain, user.id, payload.token.strip())
-            if existing_dup:
-                raise HTTPException(
-                    status_code=409,
-                    detail=(
-                        f"Duplicate site! A site for user '{existing_dup.user_name or user.name}' "
-                        f"on {domain} is already registered under ID '{existing_dup.id}'."
-                    ),
-                )
+        if platform == "moodle":
+            token = extract_moodle_token(payload.token)
+            async with MoodleClient(domain, token) as m_client:
+                try:
+                    info = await m_client.get_site_info()
+                    user_name = info.get("fullname") or info.get("username") or "Moodle User"
+                    user_id = info.get("userid")
+                    base_url = m_client.base_url
+                except Exception as e:
+                    logger.error("Failed to authenticate with Moodle at %s: %s", domain, e)
+                    msg = (
+                        f"Failed to authenticate with Moodle at {domain}. "
+                        "Please check your token or SSO link."
+                    )
+                    raise HTTPException(status_code=401, detail=msg) from e
+        else:
+            token = payload.token.strip()
+            async with CanvasClient(domain, token) as c_client:
+                try:
+                    user = await c_client.get_user_profile()
+                    user_name = user.name
+                    user_id = user.id
+                    base_url = c_client.base_url
+                except Exception as e:
+                    logger.error("Failed to authenticate with Canvas at %s: %s", domain, e)
+                    msg = (
+                        f"Failed to authenticate with Canvas at {domain}. Please check your token."
+                    )
+                    raise HTTPException(status_code=401, detail=msg) from e
 
-            site_id = (
-                payload.site_id.strip()
-                if payload.site_id
-                else sanitize_filename(domain.replace(".", "_"))
+        # Check duplicate site detection
+        existing_dup = vault.find_duplicate_site(domain, user_id, token)
+        if existing_dup:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Duplicate site! A site for user '{existing_dup.user_name or user_name}' "
+                    f"on {domain} is already registered under ID '{existing_dup.id}'."
+                ),
             )
-            if vault.get_site(site_id):
-                raise HTTPException(
-                    status_code=409,
-                    detail=f"Site ID '{site_id}' is already in use. Please choose a different ID.",
-                )
 
-            site = SiteConfig(
-                id=site_id,
-                domain=domain,
-                base_url=client.base_url,
-                user_name=user.name,
-                user_id=user.id,
-                token=payload.token.strip(),
+        site_id = (
+            payload.site_id.strip()
+            if payload.site_id
+            else sanitize_filename(domain.replace(".", "_"))
+        )
+        if vault.get_site(site_id):
+            raise HTTPException(
+                status_code=409,
+                detail=f"Site ID '{site_id}' is already in use. Please choose a different ID.",
             )
-            vault.save_site(site)
-            return {
-                "success": True,
-                "site": {
-                    "id": site.id,
-                    "domain": site.domain,
-                    "base_url": site.base_url,
-                    "user_name": site.user_name,
-                    "user_id": site.user_id,
-                    "token": site.token,
-                },
-            }
+
+        site = SiteConfig(
+            id=site_id,
+            domain=domain,
+            base_url=base_url,
+            platform=platform,
+            user_name=user_name,
+            user_id=user_id,
+            token=token,
+        )
+        vault.save_site(site)
+        return {
+            "success": True,
+            "site": {
+                "id": site.id,
+                "domain": site.domain,
+                "base_url": site.base_url,
+                "platform": site.platform,
+                "user_name": site.user_name,
+                "user_id": site.user_id,
+                "token": site.token,
+            },
+        }
 
     @app.put("/api/sites/{site_id}")
     async def update_site(site_id: str, payload: UpdateSiteRequest) -> dict[str, Any]:
@@ -157,52 +211,157 @@ def create_app(vault_dir: Path | str | None = None) -> FastAPI:
 
         domain = payload.domain.strip().lower()
         if not domain:
-            raise HTTPException(status_code=400, detail="Canvas domain is required.")
+            raise HTTPException(status_code=400, detail="Site domain is required.")
 
-        async with CanvasClient(domain, payload.token) as client:
+        platform = (payload.platform or existing.platform or "canvas").strip().lower()
+
+        if platform == "moodle":
+            token = extract_moodle_token(payload.token)
+            async with MoodleClient(domain, token) as m_client:
+                try:
+                    info = await m_client.get_site_info()
+                    user_name = info.get("fullname") or info.get("username")
+                    user_id = info.get("userid")
+                except Exception as e:
+                    logger.error("Failed to authenticate with Moodle at %s: %s", domain, e)
+                    msg = (
+                        f"Failed to authenticate with Moodle at {domain}. Please check your token."
+                    )
+                    raise HTTPException(status_code=401, detail=msg) from e
+        else:
+            token = payload.token.strip()
+            async with CanvasClient(domain, token) as c_client:
+                try:
+                    user = await c_client.get_user_profile()
+                    user_name = user.name
+                    user_id = user.id
+                except Exception as e:
+                    logger.error("Failed to authenticate with Canvas at %s: %s", domain, e)
+                    msg = (
+                        f"Failed to authenticate with Canvas at {domain}. Please check your token."
+                    )
+                    raise HTTPException(status_code=401, detail=msg) from e
+
+        new_sid = payload.site_id.strip() if payload.site_id else site_id
+        # Duplicate check excluding the current site
+        dup = vault.find_duplicate_site(domain, user_id, token, exclude_site_id=site_id)
+        if dup:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Duplicate site! Matching account already registered as '{dup.id}'.",
+            )
+
+        if new_sid != site_id and vault.get_site(new_sid):
+            raise HTTPException(
+                status_code=409,
+                detail=f"Site ID '{new_sid}' is already in use. Please choose another ID.",
+            )
+
+        updated = vault.update_site(
+            site_id=site_id,
+            new_site_id=new_sid,
+            domain=domain,
+            token=token,
+            user_name=user_name,
+            user_id=user_id,
+            platform=platform,
+        )
+        return {
+            "success": True,
+            "site": {
+                "id": updated.id,
+                "domain": updated.domain,
+                "base_url": updated.base_url,
+                "platform": updated.platform,
+                "user_name": updated.user_name,
+                "user_id": updated.user_id,
+                "token": updated.token,
+            },
+        }
+
+    # Hands-free SSO Endpoints
+    @app.get("/api/auth/moodle-sso-url")
+    def get_moodle_sso_url(domain: str = Query(...)) -> dict[str, str]:
+        """Generate the Moodle SSO launch URL for the user's institution."""
+        return {"url": build_moodle_sso_url(domain)}
+
+    @app.get("/api/auth/events")
+    async def auth_events_stream() -> StreamingResponse:
+        """SSE stream for frontend to receive hands-free auth completion notifications."""
+        q: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
+        auth_subscribers.add(q)
+
+        async def event_generator() -> AsyncGenerator[str, None]:
             try:
-                user = await client.get_user_profile()
+                while True:
+                    evt = await q.get()
+                    if evt is None:
+                        break
+                    payload = json.dumps(evt, ensure_ascii=False)
+                    yield f"data: {payload}\n\n"
+            except asyncio.CancelledError:
+                pass
+            finally:
+                auth_subscribers.discard(q)
+
+        return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+    @app.post("/api/auth/moodle-callback")
+    async def moodle_auth_callback(payload: AuthCallbackRequest) -> dict[str, Any]:
+        """Receive OS protocol callback canvastrack://... from Moodle SSO."""
+        raw_token = extract_moodle_token(payload.url)
+        if not raw_token:
+            raise HTTPException(status_code=400, detail="Could not extract token from URL.")
+
+        # If domain was provided or try to detect from URL
+        domain = payload.domain
+        if not domain and ":::" in payload.url:
+            parts = payload.url.split(":::")
+            for p in parts:
+                if "http" in p and "." in p:
+                    parsed = urllib.parse.urlparse(p)
+                    domain = parsed.netloc
+                    break
+
+        if not domain:
+            domain = (
+                os.environ.get("MOODLE_URL", "moodle.example.edu").replace("https://", "").rstrip("/")
+            )
+
+        clean_domain = domain.strip().lower()
+        async with MoodleClient(clean_domain, raw_token) as client:
+            try:
+                info = await client.get_site_info()
             except Exception as e:
-                logger.error("Failed to authenticate with Canvas at %s: %s", domain, e)
-                msg = f"Failed to authenticate with Canvas at {domain}. Please check your token."
-                raise HTTPException(status_code=401, detail=msg) from e
+                logger.error("Failed verifying token from Moodle callback: %s", e)
+                raise HTTPException(status_code=401, detail=f"Invalid Moodle token: {e}") from e
 
-            new_sid = payload.site_id.strip() if payload.site_id else site_id
-            # Duplicate check excluding the current site
-            dup = vault.find_duplicate_site(
-                domain, user.id, payload.token.strip(), exclude_site_id=site_id
-            )
-            if dup:
-                raise HTTPException(
-                    status_code=409,
-                    detail=f"Duplicate site! Matching account already registered as '{dup.id}'.",
-                )
+        user_name = info.get("fullname") or info.get("username") or "Moodle User"
+        user_id = info.get("userid")
+        site_id = sanitize_filename(clean_domain.replace(".", "_"))
 
-            if new_sid != site_id and vault.get_site(new_sid):
-                raise HTTPException(
-                    status_code=409,
-                    detail=f"Site ID '{new_sid}' is already in use. Please choose another ID.",
-                )
+        site = SiteConfig(
+            id=site_id,
+            domain=clean_domain,
+            base_url=f"https://{clean_domain}",
+            platform="moodle",
+            user_name=user_name,
+            user_id=user_id,
+            token=raw_token,
+        )
+        vault.save_site(site)
 
-            updated = vault.update_site(
-                site_id=site_id,
-                new_site_id=new_sid,
-                domain=domain,
-                token=payload.token.strip(),
-                user_name=user.name,
-                user_id=user.id,
-            )
-            return {
-                "success": True,
-                "site": {
-                    "id": updated.id,
-                    "domain": updated.domain,
-                    "base_url": updated.base_url,
-                    "user_name": updated.user_name,
-                    "user_id": updated.user_id,
-                    "token": updated.token,
-                },
-            }
+        # Notify waiting UI subscribers
+        event_payload = {
+            "type": "auth_success",
+            "platform": "moodle",
+            "site": site.model_dump(),
+        }
+        for q in list(auth_subscribers):
+            with contextlib.suppress(Exception):
+                q.put_nowait(event_payload)
+
+        return {"success": True, "site": site.model_dump()}
 
     @app.post("/api/sites/deduplicate")
     def deduplicate_sites() -> dict[str, Any]:
@@ -250,12 +409,45 @@ def create_app(vault_dir: Path | str | None = None) -> FastAPI:
 
         raise HTTPException(status_code=404, detail="Site icon not found.")
 
-    # 2. Canvas Remote Courses
+    # 2. Remote Courses (Canvas or Moodle)
     @app.get("/api/sites/{site_id}/courses")
     async def list_remote_courses(site_id: str) -> list[dict[str, Any]]:
         site = vault.get_site(site_id)
         if not site:
             raise HTTPException(status_code=404, detail="Site not found.")
+
+        archived = {m.course_id: m for m in vault.list_archived_courses(site_id)}
+        results: list[dict[str, Any]] = []
+
+        if site.platform == "moodle":
+            async with MoodleClient(site.domain, site.token) as m_client:
+                try:
+                    remote_courses = await m_client.list_courses(site.user_id)
+                except Exception as e:
+                    logger.error(
+                        "Failed to query remote courses for Moodle site %s: %s", site_id, e
+                    )
+                    raise HTTPException(
+                        status_code=502, detail=f"Failed to fetch courses from Moodle: {e}"
+                    ) from e
+
+            for rc in remote_courses:
+                cid = rc.get("id")
+                meta = archived.get(cid)
+                results.append(
+                    {
+                        "id": cid,
+                        "name": rc.get("fullname"),
+                        "course_code": rc.get("shortname"),
+                        "default_view": "modules",
+                        "is_synced": meta is not None,
+                        "last_synced_at": meta.last_synced_at if meta else None,
+                        "total_pages": meta.total_pages if meta else 0,
+                        "total_modules": meta.total_modules if meta else 0,
+                        "total_files": meta.total_files if meta else 0,
+                    }
+                )
+            return results
 
         async with CanvasClient(site.domain, site.token) as client:
             try:
@@ -266,8 +458,6 @@ def create_app(vault_dir: Path | str | None = None) -> FastAPI:
                     status_code=502, detail=f"Failed to fetch courses from Canvas: {e}"
                 ) from e
 
-        archived = {m.course_id: m for m in vault.list_archived_courses(site_id)}
-        results: list[dict[str, Any]] = []
         for rc in remote_courses:
             meta = archived.get(rc.id)
             results.append(
@@ -326,17 +516,32 @@ def create_app(vault_dir: Path | str | None = None) -> FastAPI:
         started_jobs: list[dict[str, Any]] = []
         for s in sites:
             try:
-                async with CanvasClient(s.domain, s.token) as client:
-                    remote_courses = await client.list_courses()
-                for rc in remote_courses:
-                    job = sync_manager.start_job(
-                        vault=vault,
-                        site_id=s.id,
-                        course_id=rc.id,
-                        course_name=rc.name,
-                        download_files=download_files,
-                    )
-                    started_jobs.append(job.status.model_dump())
+                if s.platform == "moodle":
+                    async with MoodleClient(s.domain, s.token) as m_client:
+                        remote_courses = await m_client.list_courses(s.user_id)
+                    for rc in remote_courses:
+                        rc_id = rc.get("id")
+                        if rc_id is not None:
+                            job = sync_manager.start_job(
+                                vault=vault,
+                                site_id=s.id,
+                                course_id=int(rc_id),
+                                course_name=rc.get("fullname", ""),
+                                download_files=download_files,
+                            )
+                            started_jobs.append(job.status.model_dump())
+                else:
+                    async with CanvasClient(s.domain, s.token) as client:
+                        remote_courses = await client.list_courses()
+                    for rc in remote_courses:
+                        job = sync_manager.start_job(
+                            vault=vault,
+                            site_id=s.id,
+                            course_id=rc.id,
+                            course_name=rc.name,
+                            download_files=download_files,
+                        )
+                        started_jobs.append(job.status.model_dump())
             except Exception as e:
                 logger.error("Failed to query courses for sync all on site %s: %s", s.id, e)
 
@@ -378,9 +583,11 @@ def create_app(vault_dir: Path | str | None = None) -> FastAPI:
 
         return StreamingResponse(event_generator(), media_type="text/event-stream")
 
-    def get_rewriter(site_id: str, course_id: int) -> CanvasLinkRewriter:
+    def get_rewriter(site_id: str, course_id: int) -> CanvasLinkRewriter | MoodleLinkRewriter:
         site = vault.get_site(site_id)
         domain = site.domain if site else None
+        if site and site.platform == "moodle":
+            return MoodleLinkRewriter(site_id, course_id, base_domain=domain)
         return CanvasLinkRewriter(site_id, course_id, base_domain=domain)
 
     # 4. Offline Vault Browsing APIs
@@ -405,7 +612,12 @@ def create_app(vault_dir: Path | str | None = None) -> FastAPI:
             syllabus = rewriter.rewrite_html(syllabus)
 
         site = vault.get_site(site_id)
-        canvas_url = f"https://{site.domain}/courses/{course_id}" if site and site.domain else ""
+        if site and site.platform == "moodle":
+            canvas_url = f"https://{site.domain}/course/view.php?id={course_id}"
+        elif site and site.domain:
+            canvas_url = f"https://{site.domain}/courses/{course_id}"
+        else:
+            canvas_url = ""
 
         return {
             "meta": meta.model_dump(),

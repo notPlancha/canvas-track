@@ -7,6 +7,7 @@ and manage Canvas sites directly from the terminal.
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import webbrowser
 from pathlib import Path
@@ -21,9 +22,15 @@ from rich.table import Table
 
 from canvas_track.client import CanvasClient
 from canvas_track.models import SiteConfig
+from canvas_track.moodle_client import MoodleClient
+from canvas_track.moodle_sync import MoodleSyncEngine
+from canvas_track.protocol import extract_moodle_token, register_protocol_handler
 from canvas_track.server import create_app
 from canvas_track.sync import SyncEngine
 from canvas_track.vault import VaultManager, sanitize_filename
+
+load_dotenv()
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
@@ -71,71 +78,118 @@ def add_site(
     domain: Annotated[
         str | None,
         typer.Argument(
-            help="Canvas domain (e.g. canvas.ltu.se). Defaults to CANVAS_DOMAIN env var if set."
+            help="LMS domain (e.g. canvas.ltu.se or moodle.example.edu). Defaults to env var if set."
         ),
     ] = None,
     token: Annotated[
         str | None,
-        typer.Argument(help="Personal Access Token. Defaults to CANVAS_TOKEN env var if set."),
+        typer.Argument(help="Access Token or SSO link. Defaults to env var if set."),
     ] = None,
     site_id: Annotated[
         str | None,
         typer.Option(
-            "--id", help="Custom identifier for the site (defaults to CANVAS_SITE_ID env var)"
+            "--id", help="Custom identifier for the site"
         ),
     ] = None,
+    platform: Annotated[
+        str,
+        typer.Option("--platform", "-p", help="LMS platform: canvas or moodle"),
+    ] = "canvas",
     vault_dir: Annotated[Path | None, typer.Option("--vault-dir", "-v")] = None,
 ) -> None:
-    """Validate and register a new Canvas site with a Personal Access Token."""
-    resolved_domain = (domain or os.environ.get("CANVAS_DOMAIN", "")).strip()
-    resolved_token = (token or os.environ.get("CANVAS_TOKEN", "")).strip()
+    """Validate and register a new Canvas or Moodle site with an Access Token or SSO link."""
+    is_moodle = platform.lower() == "moodle"
+    default_domain = os.environ.get("MOODLE_URL" if is_moodle else "CANVAS_DOMAIN", "")
+    default_token = os.environ.get("MOODLE_TOKEN" if is_moodle else "CANVAS_TOKEN", "")
+
+    resolved_domain = (domain or default_domain).strip()
+    resolved_domain = resolved_domain.replace("https://", "").replace("http://", "").rstrip("/")
+    resolved_token = (token or default_token).strip()
     resolved_site_id = (site_id or os.environ.get("CANVAS_SITE_ID", "")).strip() or None
 
     if not resolved_domain:
+        platform_name = "Moodle" if is_moodle else "Canvas"
+        env_var = "MOODLE_URL" if is_moodle else "CANVAS_DOMAIN"
         console.print(
-            "[bold red]Error:[/bold red] Canvas domain is required. "
-            "Pass it as an argument or set CANVAS_DOMAIN in your .env file."
+            f"[bold red]Error:[/bold red] {platform_name} domain is required. "
+            f"Pass it as an argument or set {env_var} in your .env file."
         )
         raise typer.Exit(code=1)
 
     if not resolved_token:
+        env_var = "MOODLE_TOKEN" if is_moodle else "CANVAS_TOKEN"
         console.print(
-            "[bold red]Error:[/bold red] Personal Access Token is required. "
-            "Pass it as an argument or set CANVAS_TOKEN in your .env file."
+            "[bold red]Error:[/bold red] Token or SSO link is required. "
+            f"Pass it as an argument or set {env_var} in your .env file."
         )
         raise typer.Exit(code=1)
 
     vault = VaultManager(vault_dir)
-    client = CanvasClient(resolved_domain, resolved_token)
 
     async def _add() -> None:
-        async with client:
-            with Progress(
-                SpinnerColumn(),
-                TextColumn("[progress.description]{task.description}"),
-                transient=True,
-            ) as progress:
-                progress.add_task(description="Authenticating with Canvas...", total=None)
-                user = await client.get_user_profile()
+        if is_moodle:
+            clean_token = extract_moodle_token(resolved_token)
+            client = MoodleClient(resolved_domain, clean_token)
+            async with client:
+                with Progress(
+                    SpinnerColumn(),
+                    TextColumn("[progress.description]{task.description}"),
+                    transient=True,
+                ) as progress:
+                    progress.add_task(description="Authenticating with Moodle...", total=None)
+                    info = await client.get_site_info()
 
-            sid = (
-                resolved_site_id
-                if resolved_site_id
-                else sanitize_filename(resolved_domain.replace(".", "_"))
-            )
-            site = SiteConfig(
-                id=sid,
-                domain=resolved_domain,
-                base_url=client.base_url,
-                user_name=user.name,
-                user_id=user.id,
-                token=resolved_token,
-            )
-            vault.save_site(site)
-            console.print(
-                f"[bold green]Registered site '[cyan]{sid}[/cyan]'![/bold green] "
-                f"User: [bold]{user.name}[/bold] (ID: {user.id})"
-            )
+                sid = (
+                    resolved_site_id
+                    if resolved_site_id
+                    else sanitize_filename(resolved_domain.replace(".", "_"))
+                )
+                user_name = info.get("fullname") or info.get("username") or "Moodle User"
+                user_id = info.get("userid")
+                site = SiteConfig(
+                    id=sid,
+                    domain=resolved_domain,
+                    base_url=client.base_url,
+                    platform="moodle",
+                    user_name=user_name,
+                    user_id=user_id,
+                    token=clean_token,
+                )
+                vault.save_site(site)
+                console.print(
+                    f"[bold green]Registered Moodle site '[cyan]{sid}[/cyan]'![/bold green] "
+                    f"User: [bold]{user_name}[/bold] (ID: {user_id})"
+                )
+        else:
+            client = CanvasClient(resolved_domain, resolved_token)
+            async with client:
+                with Progress(
+                    SpinnerColumn(),
+                    TextColumn("[progress.description]{task.description}"),
+                    transient=True,
+                ) as progress:
+                    progress.add_task(description="Authenticating with Canvas...", total=None)
+                    user = await client.get_user_profile()
+
+                sid = (
+                    resolved_site_id
+                    if resolved_site_id
+                    else sanitize_filename(resolved_domain.replace(".", "_"))
+                )
+                site = SiteConfig(
+                    id=sid,
+                    domain=resolved_domain,
+                    base_url=client.base_url,
+                    platform="canvas",
+                    user_name=user.name,
+                    user_id=user.id,
+                    token=resolved_token,
+                )
+                vault.save_site(site)
+                console.print(
+                    f"[bold green]Registered Canvas site '[cyan]{sid}[/cyan]'![/bold green] "
+                    f"User: [bold]{user.name}[/bold] (ID: {user.id})"
+                )
 
     asyncio.run(_add())
 
@@ -144,7 +198,7 @@ def add_site(
 def list_sites(
     vault_dir: Annotated[Path | None, typer.Option("--vault-dir", "-v")] = None,
 ) -> None:
-    """List all registered Canvas sites in the local vault."""
+    """List all registered LMS sites in the local vault."""
     vault = VaultManager(vault_dir)
     sites = vault.list_sites()
 
@@ -154,14 +208,16 @@ def list_sites(
         )
         return
 
-    table = Table(title="Registered Canvas Sites")
+    table = Table(title="Registered LMS Sites")
     table.add_column("Site ID", style="cyan")
+    table.add_column("Platform", style="blue")
     table.add_column("Domain", style="magenta")
     table.add_column("User", style="green")
     table.add_column("Created At", style="dim")
 
     for s in sites:
-        table.add_row(s.id, s.domain, s.user_name or "N/A", s.created_at[:19])
+        plat_label = "Moodle" if s.platform == "moodle" else "Canvas"
+        table.add_row(s.id, plat_label, s.domain, s.user_name or "N/A", s.created_at[:19])
 
     console.print(table)
 
@@ -171,12 +227,12 @@ def sync(
     site_id: Annotated[
         str | None,
         typer.Argument(
-            help="Registered site ID (defaults to CANVAS_SITE_ID or single registered site)"
+            help="Registered site ID (defaults to env var or single registered site)"
         ),
     ] = None,
     course_id: Annotated[
         int | None,
-        typer.Argument(help="Canvas course ID to sync (defaults to CANVAS_COURSE_ID env var)"),
+        typer.Argument(help="Course ID to sync (defaults to env var)"),
     ] = None,
     download_files: Annotated[
         bool, typer.Option("--files/--no-files", help="Download course files & attachments")
@@ -211,19 +267,33 @@ def sync(
 
     resolved_course_id = course_id
     if resolved_course_id is None:
-        env_course = os.environ.get("CANVAS_COURSE_ID", "").strip()
+        env_course = (
+            os.environ.get("MOODLE_COURSE_ID", "")
+            if site.platform == "moodle"
+            else os.environ.get("CANVAS_COURSE_ID", "")
+        ).strip()
         if env_course and env_course.isdigit():
             resolved_course_id = int(env_course)
 
     if resolved_course_id is None:
         console.print(
             "[bold red]Error:[/bold red] Course ID is required. "
-            "Pass it as an argument or set CANVAS_COURSE_ID in your .env file."
+            "Pass it as an argument or set COURSE_ID in your .env file."
         )
         raise typer.Exit(code=1)
 
-    client = CanvasClient(site.domain, site.token)
-    sync_engine = SyncEngine(client, vault, resolved_site_id)
+    is_moodle = site.platform == "moodle"
+    sync_engine: MoodleSyncEngine | SyncEngine
+    client: MoodleClient | CanvasClient
+
+    if is_moodle:
+        m_client = MoodleClient(site.domain, site.token)
+        client = m_client
+        sync_engine = MoodleSyncEngine(m_client, vault, resolved_site_id)
+    else:
+        c_client = CanvasClient(site.domain, site.token)
+        client = c_client
+        sync_engine = SyncEngine(c_client, vault, resolved_site_id)
 
     async def _sync() -> None:
         async with client:
@@ -254,6 +324,37 @@ def sync(
             )
 
     asyncio.run(_sync())
+
+
+@app.command(name="auth-callback", hidden=True)
+def auth_callback(
+    url: Annotated[str, typer.Argument(help="canvastrack:// URL callback from OS")],
+) -> None:
+    """Handle OS protocol invocation from canvastrack:// and post to local server."""
+    import httpx
+
+    try:
+        httpx.post(
+            "http://127.0.0.1:8000/api/auth/moodle-callback",
+            json={"url": url},
+            timeout=5.0,
+        )
+    except Exception as e:
+        logger.debug("Failed sending auth callback to server: %s", e)
+
+
+@app.command()
+def register_protocol() -> None:
+    """Register the canvastrack:// protocol handler in Windows HKCU."""
+    ok = register_protocol_handler()
+    if ok:
+        console.print(
+            "[bold green]Registered canvastrack:// protocol handler successfully.[/bold green]"
+        )
+    else:
+        console.print(
+            "[yellow]Protocol handler registration skipped or unsupported on this OS.[/yellow]"
+        )
 
 
 @app.command()
