@@ -1,0 +1,123 @@
+version: '3'
+
+tasks:
+  default:
+    desc: List available tasks
+    cmd: task --list
+    silent: true
+
+  # ===========================================================================
+  # Application & CLI
+  # ===========================================================================
+  serve:
+    desc: Start the Canvas Track local web application and GUI
+    cmds:
+      - uv run canvas-track serve {{.CLI_ARGS}}
+
+  sync:
+    desc: "Sync a course to the offline vault (usage: task sync -- <site_id> <course_id>)"
+    cmds:
+      - uv run canvas-track sync {{.CLI_ARGS}}
+
+  sites:
+    desc: List all registered Canvas and Moodle LMS sites
+    cmds:
+      - uv run canvas-track list-sites {{.CLI_ARGS}}
+
+  register-protocol:
+    desc: Register canvastrack:// URL protocol handler in Windows registry (SSO bridge)
+    cmds:
+      - uv run canvas-track register-protocol {{.CLI_ARGS}}
+
+  # ===========================================================================
+  # Testing & Code Quality
+  # ===========================================================================
+  test:
+    desc: Run the full test suite
+    cmds:
+      - uv run pytest {{.CLI_ARGS}}
+
+  test:fast:
+    desc: Run fast unit tests (excluding live LMS network tests)
+    cmds:
+      - uv run pytest -m "not live" {{.CLI_ARGS}}
+
+  lint:
+    desc: Lint Python code using ruff
+    cmds:
+      - uv run ruff check . {{.CLI_ARGS}}
+
+  lint:fix:
+    desc: Automatically fix linting issues using ruff
+    cmds:
+      - uv run ruff check --fix . {{.CLI_ARGS}}
+
+  format:
+    desc: Format Python code using ruff
+    cmds:
+      - uv run ruff format . {{.CLI_ARGS}}
+
+  format:check:
+    desc: Check Python formatting without modifying files
+    cmds:
+      - uv run ruff format --check . {{.CLI_ARGS}}
+
+  typecheck:
+    desc: Run static type checking on backend with ty
+    cmds:
+      - uv run ty check src/ {{.CLI_ARGS}}
+
+  check:
+    desc: Run linting, format checking, type checking, and fast tests
+    cmds:
+      - task: lint
+      - task: format:check
+      - task: typecheck
+      - task: test:fast
+
+  # ===========================================================================
+  # Frontend (Svelte 5 + Bun)
+  # ===========================================================================
+  frontend:install:
+    desc: Install frontend dependencies with bun
+    dir: frontend
+    cmds:
+      - bun install
+
+  frontend:dev:
+    desc: Start frontend development server with Vite
+    dir: frontend
+    cmds:
+      - bun run dev
+
+  frontend:build:
+    desc: Build frontend assets into src/canvas_track/static/
+    dir: frontend
+    cmds:
+      - bun run build
+
+  # ===========================================================================
+  # Build & Packaging
+  # ===========================================================================
+  build:
+    desc: Package Canvas Track into standalone Windows executable (dist/canvas-track.exe)
+    cmds:
+      - uv run python scripts/build_executable.py {{.CLI_ARGS}}
+
+  build:full:
+    desc: Rebuild frontend and package standalone Windows executable
+    cmds:
+      - uv run python scripts/build_executable.py --rebuild-frontend {{.CLI_ARGS}}
+
+  # ===========================================================================
+  # Validation & Housekeeping
+  # ===========================================================================
+  validate:
+    desc: Run course vault validation pipeline and generate report
+    cmds:
+      - uv run python scripts/validate_vault.py {{.CLI_ARGS}}
+
+  clean:
+    desc: Clean build artifacts, PyInstaller outputs, and temporary caches
+    cmds:
+      - uv run python -c "import shutil, pathlib; [shutil.rmtree(p, ignore_errors=True) for p in ['dist', 'build', '.pytest_cache', '.ruff_cache', 'frontend/dist', 'frontend/node_modules/.vite']]; [p.unlink() for p in pathlib.Path('.').rglob('*.pyc')]"
