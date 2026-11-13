@@ -54,3 +54,20 @@ def test_cli_add_site_missing_args_error(tmp_path: Path, monkeypatch) -> None:
     result = runner.invoke(app, ["add-site", "--vault-dir", str(tmp_path)])
     assert result.exit_code != 0
     assert "Canvas domain is required" in result.stdout
+
+
+def test_cli_default_invocation_calls_serve(monkeypatch) -> None:
+    called = []
+    monkeypatch.setattr("canvas_track.cli.serve", lambda **kwargs: called.append(True))
+    result = runner.invoke(app, [])
+    assert result.exit_code == 0
+    assert called == [True]
+
+
+def test_cli_help() -> None:
+    result = runner.invoke(app, ["--help"])
+    assert result.exit_code == 0
+    assert "serve" in result.stdout
+    assert "add-site" in result.stdout
+    assert "sync" in result.stdout
+

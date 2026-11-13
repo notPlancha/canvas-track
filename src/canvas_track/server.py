@@ -794,7 +794,16 @@ def create_app(vault_dir: Path | str | None = None) -> FastAPI:
         }
 
     # 5. Serve Svelte Frontend Static Build
-    static_dir = Path(__file__).parent / "static"
+    static_candidates = [
+        Path(__file__).parent / "static",
+    ]
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        meipass_path = Path(sys._MEIPASS)  # type: ignore[attr-defined]
+        static_candidates.insert(0, meipass_path / "canvas_track" / "static")
+        static_candidates.insert(1, meipass_path / "static")
+
+    default_static = Path(__file__).parent / "static"
+    static_dir = next((p for p in static_candidates if p.exists()), default_static)
     if static_dir.exists():
         app.mount("/assets", StaticFiles(directory=static_dir / "assets"), name="assets")
 

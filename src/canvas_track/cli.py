@@ -41,6 +41,14 @@ app = typer.Typer(
 console = Console()
 
 
+@app.callback(invoke_without_command=True)
+def main_callback(ctx: typer.Context) -> None:
+    """Offline sync engine and reader for Canvas LMS courses."""
+    if ctx.invoked_subcommand is None:
+        ctx.invoke(serve)
+
+
+
 @app.command()
 def serve(
     port: Annotated[int, typer.Option("--port", "-p", help="Port to bind the server to.")] = 8000,
