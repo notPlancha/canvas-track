@@ -102,6 +102,30 @@ uv run ruff check .
 uv run ty check src/
 ```
 
+### 📦 Standalone Executable (Windows)
+
+Package Canvas Track as a self-contained, single-file Windows binary (`canvas-track.exe`) bundling the Python runtime, dependencies, and compiled Svelte 5 frontend:
+
+```bash
+# Build the executable (dist/canvas-track.exe):
+uv run python scripts/build_executable.py
+
+# Or rebuild the Svelte frontend and re-package in one step:
+uv run python scripts/build_executable.py --rebuild-frontend
+```
+
+#### Running the Executable:
+- **Double-click `canvas-track.exe`**: Launches the local server and automatically opens `http://127.0.0.1:8000` in your default browser.
+- **CLI Commands**:
+  ```bash
+  .\dist\canvas-track.exe --help
+  .\dist\canvas-track.exe list-sites
+  .\dist\canvas-track.exe sync <site_id> <course_id>
+  ```
+uv run ruff check .
+uv run ty check src/
+```
+
 ---
 
 ## 📄 License
