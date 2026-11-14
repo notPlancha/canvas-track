@@ -28,7 +28,11 @@ token.txt
 vault/
 tests_data/
 
-# IDE & OS
+# Personal Academic Reports & Audits
+STUDY_TRACKER*
+VALIDATION_REPORT*
+
+# IDE, OS & Agents
 .vscode/
 .idea/
 .DS_Store
