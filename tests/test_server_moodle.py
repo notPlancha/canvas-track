@@ -14,7 +14,7 @@ def test_add_and_list_moodle_site(tmp_path: Path) -> None:
     client = TestClient(app)
 
     mock_info = {
-        "sitename": "Linnaeus Moodle",
+        "sitename": "Example Moodle",
         "username": "student_user",
         "firstname": "Student",
         "lastname": "User",
@@ -34,14 +34,14 @@ def test_add_and_list_moodle_site(tmp_path: Path) -> None:
         payload = {
             "domain": "moodle.example.edu",
             "token": "moodlemobile://token=ZHVtbXlfcHJpdmF0ZV90b2tlbjo6OjAxMjM0NTY3ODlhYmNkZWYwMTIzNDU2Nzg5YWJjZGVm",
-            "site_id": "lnu",
+            "site_id": "example_moodle",
             "platform": "moodle",
         }
         res = client.post("/api/sites", json=payload)
         assert res.status_code == 200
         data = res.json()
         assert data["success"] is True
-        assert data["site"]["id"] == "lnu"
+        assert data["site"]["id"] == "example_moodle"
         assert data["site"]["platform"] == "moodle"
         assert data["site"]["user_name"] == "Student User"
         assert data["site"]["token"] == "0123456789abcdef0123456789abcdef"
@@ -63,11 +63,11 @@ def test_list_remote_moodle_courses(tmp_path: Path) -> None:
 
     vault.save_site(
         SiteConfig(
-            id="lnu",
+            id="example_moodle",
             domain="moodle.example.edu",
             base_url="https://moodle.example.edu",
             platform="moodle",
-            user_name="Student",
+            user_name="Student User",
             user_id=12345,
             token="0123456789abcdef0123456789abcdef",
         )
@@ -86,7 +86,7 @@ def test_list_remote_moodle_courses(tmp_path: Path) -> None:
         ]
         mock_client_cls.return_value = mock_instance
 
-        res = client.get("/api/sites/lnu/courses")
+        res = client.get("/api/sites/example_moodle/courses")
         assert res.status_code == 200
         courses = res.json()
         assert len(courses) == 1
@@ -107,7 +107,7 @@ def test_moodle_sso_url_and_callback(tmp_path: Path) -> None:
 
     # 2. Post callback from OS protocol handler
     mock_info = {
-        "sitename": "Linnaeus Moodle",
+        "sitename": "Example Moodle",
         "username": "student_user",
         "fullname": "Student User",
         "userid": 12345,

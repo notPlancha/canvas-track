@@ -23,7 +23,10 @@ load_dotenv()
 
 MOODLE_URL = os.environ.get("MOODLE_URL", "https://moodle.example.edu")
 MOODLE_TOKEN = os.environ.get("MOODLE_TOKEN")
-COURSE_ID = int(os.environ.get("MOODLE_COURSE_ID", "73674"))
+COURSE_ID = int(os.environ.get("MOODLE_COURSE_ID", "12345"))
+SITE_ID = os.environ.get("MOODLE_SITE_ID", "moodle_live")
+EXPECTED_USER_ID = os.environ.get("MOODLE_EXPECTED_USER_ID")
+EXPECTED_USER_NAME = os.environ.get("MOODLE_EXPECTED_USER_NAME")
 
 if not MOODLE_TOKEN:
     pytest.skip(
@@ -39,11 +42,15 @@ async def test_live_moodle_read_only_sync(tmp_path: Path) -> None:
 
     # 1. Verify student profile
     info = await client.get_site_info()
-    assert info.get("userid") == 12345
-    assert "Student" in info.get("fullname", "")
+    assert info.get("userid") is not None
+    assert info.get("fullname") or info.get("username")
+    if EXPECTED_USER_ID:
+        assert str(info.get("userid")) == str(EXPECTED_USER_ID)
+    if EXPECTED_USER_NAME:
+        assert EXPECTED_USER_NAME.lower() in (info.get("fullname") or "").lower()
 
     site = SiteConfig(
-        id="lnu",
+        id=SITE_ID,
         domain=client.base_url.replace("https://", "").replace("http://", ""),
         base_url=client.base_url,
         platform="moodle",
@@ -58,7 +65,7 @@ async def test_live_moodle_read_only_sync(tmp_path: Path) -> None:
     assert any(c.get("id") == COURSE_ID for c in courses)
 
     # 3. Perform read-only sync
-    engine = MoodleSyncEngine(client, vault, "lnu")
+    engine = MoodleSyncEngine(client, vault, SITE_ID)
     meta = await engine.sync_course(COURSE_ID, download_files=False)
     assert meta.course_id == COURSE_ID
     assert meta.total_modules > 0
@@ -69,10 +76,10 @@ async def test_live_moodle_read_only_sync(tmp_path: Path) -> None:
     app = create_app(tmp_path)
     test_client = TestClient(app)
 
-    res_courses = test_client.get("/api/vault/sites/lnu/courses")
+    res_courses = test_client.get(f"/api/vault/sites/{SITE_ID}/courses")
     assert res_courses.status_code == 200
     assert len(res_courses.json()) >= 1
 
-    res_modules = test_client.get(f"/api/vault/courses/lnu/{COURSE_ID}/modules")
+    res_modules = test_client.get(f"/api/vault/courses/{SITE_ID}/{COURSE_ID}/modules")
     assert res_modules.status_code == 200
     assert len(res_modules.json()) >= 1
