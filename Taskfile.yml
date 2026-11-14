@@ -110,13 +110,8 @@ tasks:
       - uv run python scripts/build_executable.py --rebuild-frontend {{.CLI_ARGS}}
 
   # ===========================================================================
-  # Validation & Housekeeping
+  # Housekeeping & Cleaning
   # ===========================================================================
-  validate:
-    desc: Run course vault validation pipeline and generate report
-    cmds:
-      - uv run python scripts/validate_vault.py {{.CLI_ARGS}}
-
   clean:
     desc: Clean build artifacts, PyInstaller outputs, and temporary caches
     cmds:
