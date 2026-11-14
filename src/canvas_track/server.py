@@ -293,7 +293,7 @@ def create_app(vault_dir: Path | str | None = None) -> FastAPI:
 
         async def event_generator() -> AsyncGenerator[str, None]:
             # Send initial event to immediately open the stream in the browser
-            yield "data: {\"type\": \"connected\"}\n\n"
+            yield 'data: {"type": "connected"}\n\n'
             try:
                 while True:
                     evt = await q.get()

@@ -48,7 +48,6 @@ def main_callback(ctx: typer.Context) -> None:
         ctx.invoke(serve)
 
 
-
 @app.command()
 def serve(
     port: Annotated[int, typer.Option("--port", "-p", help="Port to bind the server to.")] = 8000,
@@ -95,9 +94,7 @@ def add_site(
     ] = None,
     site_id: Annotated[
         str | None,
-        typer.Option(
-            "--id", help="Custom identifier for the site"
-        ),
+        typer.Option("--id", help="Custom identifier for the site"),
     ] = None,
     platform: Annotated[
         str,
@@ -234,9 +231,7 @@ def list_sites(
 def sync(
     site_id: Annotated[
         str | None,
-        typer.Argument(
-            help="Registered site ID (defaults to env var or single registered site)"
-        ),
+        typer.Argument(help="Registered site ID (defaults to env var or single registered site)"),
     ] = None,
     course_id: Annotated[
         int | None,

@@ -70,4 +70,3 @@ def test_cli_help() -> None:
     assert "serve" in result.stdout
     assert "add-site" in result.stdout
     assert "sync" in result.stdout
-
